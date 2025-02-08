@@ -6,10 +6,10 @@ async function bootstrap() {
 
   app.enableCors({
     origin: 'https://edgetrader.vercel.app',
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    allowedHeaders: 'Origin,X-Requested-With,Content-Type,Accept,Authorization',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
-  });
+  });  
 
   await app.listen(process.env.PORT || 3000);
   console.log("Server running...");
