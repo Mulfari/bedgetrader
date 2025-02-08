@@ -33,22 +33,20 @@ export class AuthService {
     return this.jwtService.sign({ userId });
   }
 
-  async registerUser(name: string, email: string, password: string) {
+// auth.service.ts
+async registerUser(name: string, email: string, password: string) {
     try {
       const hashedPassword = await this.hashPassword(password);
-      console.log("🔹 Intentando crear usuario en la base de datos:", { name, email, password: hashedPassword });
-
       const user = await this.prisma.user.create({
         data: { name, email, password: hashedPassword },
       });
-
-      console.log("✅ Usuario creado exitosamente:", user);
       return user;
     } catch (error) {
-      console.error("❌ Error al crear usuario en la base de datos:", error);
-      throw new Error("Error al registrar usuario.");
+      console.error("Error al registrar usuario:", error);
+      throw new UnauthorizedException('Registro fallido');
     }
   }
+  
 
   async validateUser(email: string, password: string) {
     try {
