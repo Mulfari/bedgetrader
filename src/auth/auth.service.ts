@@ -20,11 +20,21 @@ export class AuthService {
   }
 
   async registerUser(name: string, email: string, password: string) {
-    const hashedPassword = await this.hashPassword(password);
-
-    return this.prisma.user.create({
-      data: { name, email, password: hashedPassword },
-    });
+    try {
+      const hashedPassword = await this.hashPassword(password);
+      
+      console.log("Intentando crear usuario en la base de datos:", { name, email, password: hashedPassword });
+  
+      const user = await this.prisma.user.create({
+        data: { name, email, password: hashedPassword },
+      });
+  
+      console.log("Usuario creado exitosamente:", user); // ✅ Verifica si Prisma crea el usuario
+      return user;
+    } catch (error) {
+      console.error("Error al crear usuario:", error);
+      throw new Error("Error al registrar usuario.");
+    }
   }
 
   async validateUser(email: string, password: string) {
