@@ -3,6 +3,13 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  await app.listen(process.env.PORT ?? 4000);
+
+  app.enableCors({
+    origin: '*', // O mejor: 'https://edgetrader.vercel.app'
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type'],
+  });
+
+  await app.listen(3000);
 }
 bootstrap();
