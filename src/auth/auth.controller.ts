@@ -7,8 +7,8 @@ export class AuthController {
 
   @Post('register')
   async register(@Body() body: { email: string; password: string }) {
+    console.log("Received request:", body);
     const hashedPassword = await this.authService.hashPassword(body.password);
-    // Simulación de guardado en BD
     const user = { id: Date.now().toString(), email: body.email, password: hashedPassword };
     return { message: 'Usuario registrado', user };
   }
