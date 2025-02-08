@@ -1,6 +1,9 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+
+const prisma = new PrismaClient();
 
 @Injectable()
 export class AuthService {
@@ -21,14 +24,22 @@ export class AuthService {
     return this.jwtService.sign({ userId });
   }
 
-  // Validar usuario (por ahora es un mock)
-  async validateUser(email: string, password: string) {
-    const mockUser = { id: '1', email: 'test@example.com', password: await this.hashPassword('123456') };
+  // Registrar usuario en la base de datos
+  async registerUser(name: string, email: string, password: string) {
+    const hashedPassword = await this.hashPassword(password);
+    return prisma.user.create({
+      data: { name, email, password: hashedPassword },
+    });
+  }
 
-    if (email !== mockUser.email) throw new UnauthorizedException('Usuario no encontrado');
-    const isPasswordValid = await this.comparePasswords(password, mockUser.password);
+  // Validar usuario en la base de datos
+  async validateUser(email: string, password: string) {
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) throw new UnauthorizedException('Usuario no encontrado');
+    const isPasswordValid = await this.comparePasswords(password, user.password);
     if (!isPasswordValid) throw new UnauthorizedException('Credenciales inválidas');
 
-    return { id: mockUser.id, email: mockUser.email, token: await this.generateToken(mockUser.id) };
+    return { id: user.id, email: user.email, token: await this.generateToken(user.id) };
   }
 }
