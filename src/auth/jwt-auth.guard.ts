@@ -9,7 +9,7 @@ export class JwtAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const authHeader = request.headers.authorization;
 
-    console.log("🔹 Encabezado Authorization recibido:", authHeader); // ✅ Verificar si el token llega
+    console.log("🔹 Encabezado Authorization recibido:", authHeader); // ✅ Verifica si el token llega
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       console.log("🚨 No se recibió token o formato incorrecto");
@@ -19,7 +19,10 @@ export class JwtAuthGuard implements CanActivate {
     const token = authHeader.split(" ")[1];
 
     try {
-      const decoded = this.jwtService.verify(token);
+      const jwtSecret = process.env.JWT_SECRET;
+      console.log("🔹 JWT_SECRET en JwtAuthGuard:", jwtSecret || "❌ NO DEFINIDO");
+
+      const decoded = this.jwtService.verify(token, { secret: jwtSecret });
       console.log("✅ Token decodificado en el backend:", decoded); // ✅ Verificar que se decodifica correctamente
       request.user = decoded;
       return true;
