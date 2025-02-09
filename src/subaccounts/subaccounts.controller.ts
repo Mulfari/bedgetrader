@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Req, UseGuards } from "@nestjs/common";
+import { Controller, Post, Body, Req, UseGuards, UnauthorizedException } from "@nestjs/common";
 import { SubaccountsService } from "./subaccounts.service";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 
@@ -6,12 +6,15 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 export class SubaccountsController {
   constructor(private readonly subaccountsService: SubaccountsService) {}
 
-  @UseGuards(JwtAuthGuard) // Protege con JWT
+  @UseGuards(JwtAuthGuard) // ✅ Protege la ruta con JWT
   @Post()
   async createSubAccount(@Req() req, @Body() body) {
-    console.log("📥 Recibiendo solicitud en /subaccounts", body);
+    console.log("🔹 Token recibido:", req.headers.authorization); // ✅ Verifica si el token llega
 
-    const userId = req.user.sub; // Obtener userId desde JWT
-    return this.subaccountsService.createSubAccount(userId, body);
+    if (!req.user) {
+      throw new UnauthorizedException("Usuario no autenticado");
+    }
+
+    return this.subaccountsService.createSubAccount(req.user.sub, body);
   }
 }
