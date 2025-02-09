@@ -29,24 +29,29 @@ export class AuthService {
     return bcrypt.compare(password, hashedPassword);
   }
 
-  async generateToken(userId: string): Promise<string> {
-    return this.jwtService.sign({ userId });
+  // ✅ CORREGIDO: Ahora el token incluye `sub` y `email`
+  async generateToken(user: { id: string; email: string }): Promise<string> {
+    return this.jwtService.sign({
+      sub: user.id, // ✅ `sub` es el identificador correcto del usuario
+      email: user.email, // ✅ Se incluye `email` para depuración
+    });
   }
 
-// auth.service.ts
-async registerUser(name: string, email: string, password: string) {
+  // ✅ CORREGIDO: Ahora el token se genera con `sub` y `email`
+  async registerUser(name: string, email: string, password: string) {
     try {
       const hashedPassword = await this.hashPassword(password);
       const user = await this.prisma.user.create({
         data: { name, email, password: hashedPassword },
       });
-      return user;
+
+      const token = await this.generateToken(user);
+      return { id: user.id, email: user.email, token };
     } catch (error) {
-      console.error("Error al registrar usuario:", error);
+      console.error("❌ Error al registrar usuario:", error);
       throw new UnauthorizedException('Registro fallido');
     }
   }
-  
 
   async validateUser(email: string, password: string) {
     try {
@@ -63,7 +68,7 @@ async registerUser(name: string, email: string, password: string) {
         throw new UnauthorizedException('Credenciales inválidas');
       }
 
-      const token = await this.generateToken(user.id);
+      const token = await this.generateToken(user);
       console.log("✅ Usuario autenticado:", { id: user.id, email: user.email });
 
       return { id: user.id, email: user.email, token };
