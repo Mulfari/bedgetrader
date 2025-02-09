@@ -4,7 +4,7 @@ import { AuthService } from "./auth.service";
 import { AuthController } from "./auth.controller";
 import { JwtModule } from "@nestjs/jwt";
 import { JwtStrategy } from "./jwt.strategy"; // Estrategia JWT
-import { JwtAuthGuard } from "./jew-auth.guard"; // Importamos el guard
+import { JwtAuthGuard } from "./jwt-auth.guard"; // Importamos el guard
 import { PrismaModule } from "../prisma.module";
 
 @Module({
