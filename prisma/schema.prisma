@@ -8,21 +8,21 @@ generator client {
 }
 
 model User {
-  id         String       @id @default(uuid())
-  email      String       @unique
-  password   String
-  name       String?
-  createdAt  DateTime     @default(now())
+  id          String       @id @default(uuid())
+  email       String       @unique
+  password    String
+  name        String?
+  createdAt   DateTime     @default(now())
   subAccounts SubAccount[] // Relación con subcuentas
 }
 
 model SubAccount {
-  id         String   @id @default(uuid())
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId     String
-  name       String   // Nombre de la subcuenta
-  exchange   String   // "bybit" (puedes agregar más en el futuro)
-  apiKey     String   // Clave pública de API
-  apiSecret  String   // Clave secreta de API (considerar encriptar)
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exchange  String
+  apiKey    String
+  apiSecret String
+  name      String
+  createdAt DateTime @default(now())
 }
