@@ -2,7 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  console.log("🔹 Cargando JWT_SECRET:", process.env.JWT_SECRET || "❌ NO DEFINIDO");
+  console.log("🔹 JWT_SECRET en el backend:", process.env.JWT_SECRET || "❌ NO DEFINIDO");
 
   const app = await NestFactory.create(AppModule);
 
