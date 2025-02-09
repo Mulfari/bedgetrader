@@ -9,7 +9,7 @@ export class SubaccountsController {
   @UseGuards(JwtAuthGuard) // ✅ Protege la ruta con JWT
   @Post()
   async createSubAccount(@Req() req, @Body() body) {
-    console.log("🔹 Token recibido:", req.headers.authorization); // ✅ Verifica si el token llega
+    console.log("🔹 Token recibido en el backend:", req.headers.authorization); // ✅ Verifica si el token llega
 
     if (!req.user) {
       throw new UnauthorizedException("Usuario no autenticado");
