@@ -12,12 +12,24 @@ export class SubaccountsService {
           userId,
           exchange: data.exchange,
           apiKey: data.apiKey,
-          apiSecret: data.apiSecret, // ⚠️ Considera encriptarlo antes de guardar
+          apiSecret: data.apiSecret, 
           name: data.name,
         },
       });
     } catch (error) {
       throw new Error("Error creando subcuenta: " + error.message);
+    }
+  }
+
+  // ✅ Nuevo método para obtener las subcuentas del usuario
+  async getSubAccounts(userId: string) {
+    try {
+      return await this.prisma.subAccount.findMany({
+        where: { userId },
+        select: { id: true, exchange: true, apiKey: true, name: true }, // Evita exponer apiSecret
+      });
+    } catch (error) {
+      throw new Error("Error obteniendo subcuentas: " + error.message);
     }
   }
 }
