@@ -4,23 +4,23 @@ import { AuthController } from "./auth.controller";
 import { JwtModule } from "@nestjs/jwt";
 import { JwtStrategy } from "./jwt.strategy";
 import { PrismaModule } from "../prisma.module";
-import { ConfigModule, ConfigService } from "@nestjs/config"; // ✅ Importa ConfigModule y ConfigService
+import { ConfigModule, ConfigService } from "@nestjs/config";
 
 @Module({
   imports: [
-    ConfigModule.forRoot(), // ✅ Cargar variables de entorno desde `.env`
+    ConfigModule.forRoot(), // ✅ Cargar variables de entorno
     JwtModule.registerAsync({
-      imports: [ConfigModule], // ✅ Asegurar que usa ConfigModule
+      imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>("JWT_SECRET"), // ✅ Obtener clave desde `.env`
-        signOptions: { expiresIn: "1d" },
+        secret: configService.get<string>("JWT_SECRET"), // ✅ Obtener clave de Railway
+        signOptions: { expiresIn: "1d" }, // ⏳ Configura duración del token
       }),
     }),
     PrismaModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],
-  exports: [JwtModule], // ✅ Exportar JwtModule para otros módulos
+  exports: [JwtModule],
 })
 export class AuthModule {}
