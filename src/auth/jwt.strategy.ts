@@ -9,10 +9,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private prisma: PrismaService, private configService: ConfigService) {
     const jwtSecret = configService.get<string>("JWT_SECRET");
 
-    console.log("🔹 JWT_SECRET cargado en JwtStrategy:", jwtSecret || "❌ NO DEFINIDO");
+    console.log("🔹 JWT_SECRET en JwtStrategy:", jwtSecret || "❌ NO DEFINIDO");
 
     if (!jwtSecret) {
-      throw new Error("🚨 JWT_SECRET no está definido en .env o en Railway.");
+      throw new Error("🚨 JWT_SECRET no está definido en Railway.");
     }
 
     super({
@@ -23,7 +23,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    console.log("🔹 Decodificando Token:", payload);
+    console.log("🔹 Decodificando Token en JwtStrategy:", payload);
 
     if (!payload || !payload.sub) {
       console.log("🚨 Token inválido: falta `sub`.");
