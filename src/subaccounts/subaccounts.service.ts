@@ -23,7 +23,7 @@ export class SubaccountsService {
     }
   }
 
-  // ✅ Método para obtener las subcuentas del usuario (sin apiSecret)
+  // ✅ Método para obtener las subcuentas del usuario
   async getSubAccounts(userId: string) {
     try {
       return await this.prisma.subAccount.findMany({
@@ -65,22 +65,22 @@ export class SubaccountsService {
     }
   }
 
-  // ✅ Método para consultar el balance en Bybit con firma corregida
+  // ✅ Método para consultar el balance en Bybit (usando `GET`)
   private async getBybitBalance(apiKey: string, apiSecret: string): Promise<number> {
     try {
       const endpoint = "https://api-testnet.bybit.com/v5/account/wallet-balance";
       const timestamp = Date.now().toString();
       const recvWindow = "5000";
-      const params = { accountType: "UNIFIED" }; // 🔹 Parámetro requerido por Bybit
+      const params = new URLSearchParams({ accountType: "UNIFIED" }).toString();
 
       // 🔥 Firma corregida según Bybit
-      const queryString = JSON.stringify(params);
-      const signString = timestamp + apiKey + recvWindow + queryString;
+      const signString = timestamp + apiKey + recvWindow + params;
       const sign = crypto.createHmac("sha256", apiSecret).update(signString).digest("hex");
 
-      // 🔄 Hacer la solicitud a Bybit con `POST`
-      const response = await fetch(endpoint, {
-        method: "POST",
+      // 🔄 Hacer la solicitud a Bybit con `GET`
+      const url = `${endpoint}?${params}`;
+      const response = await fetch(url, {
+        method: "GET",
         headers: {
           "Content-Type": "application/json",
           "X-BAPI-API-KEY": apiKey,
@@ -88,7 +88,6 @@ export class SubaccountsService {
           "X-BAPI-RECV-WINDOW": recvWindow,
           "X-BAPI-SIGN": sign,
         },
-        body: queryString, // ✅ Enviar el JSON correctamente
       });
 
       // 🔍 Leer la respuesta sin procesar (para depuración)
