@@ -65,16 +65,16 @@ export class SubaccountsService {
     }
   }
 
-  // ✅ Método para consultar el balance en Bybit con la firma correcta
+  // ✅ Método para consultar el balance en Bybit con la firma corregida
   private async getBybitBalance(apiKey: string, apiSecret: string): Promise<number> {
     try {
       const endpoint = "https://api-testnet.bybit.com/v5/account/wallet-balance";
       const timestamp = Date.now().toString();
       const recvWindow = "5000";
+      const params = { accountType: "UNIFIED" }; // 🔹 Parámetro requerido por Bybit
 
-      // 📌 Firma corregida según Bybit (JSON.stringify y concatenación correcta)
-      const params = JSON.stringify({ accountType: "UNIFIED" });
-      const signString = timestamp + apiKey + recvWindow + params;
+      // 🔥 Firma corregida según Bybit
+      const signString = timestamp + apiKey + recvWindow + JSON.stringify(params);
       const sign = crypto.createHmac("sha256", apiSecret).update(signString).digest("hex");
 
       const response = await fetch(endpoint, {
@@ -86,17 +86,17 @@ export class SubaccountsService {
           "X-BAPI-RECV-WINDOW": recvWindow,
           "X-BAPI-SIGN": sign,
         },
-        body: params,
+        body: JSON.stringify(params), // ✅ Enviar el JSON correctamente
       });
 
-      if (!response.ok) {
-        throw new Error(`Error en la API de Bybit: ${response.statusText}`);
+      const data = await response.json();
+      console.log("🔍 Respuesta de Bybit:", JSON.stringify(data, null, 2)); // ✅ Log detallado para depuración
+
+      if (!response.ok || data.retCode !== 0) {
+        throw new Error(`Error en la API de Bybit: ${data.retMsg || response.statusText}`);
       }
 
-      const data = await response.json();
-      console.log("🔍 Respuesta de Bybit:", data);
-
-      // 📌 Extraer el balance en USDT
+      // 📌 Extraer el balance en USDT (cambia la moneda si es necesario)
       const usdtBalance = data?.result?.list?.find((item: any) => item.coin === "USDT")?.walletBalance || 0;
 
       return parseFloat(usdtBalance);
