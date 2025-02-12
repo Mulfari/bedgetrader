@@ -65,7 +65,7 @@ export class SubaccountsService {
     }
   }
 
-  // ✅ Método para consultar el balance en Bybit con la firma corregida
+  // ✅ Método para consultar el balance en Bybit con firma corregida
   private async getBybitBalance(apiKey: string, apiSecret: string): Promise<number> {
     try {
       const endpoint = "https://api-testnet.bybit.com/v5/account/wallet-balance";
@@ -74,9 +74,11 @@ export class SubaccountsService {
       const params = { accountType: "UNIFIED" }; // 🔹 Parámetro requerido por Bybit
 
       // 🔥 Firma corregida según Bybit
-      const signString = timestamp + apiKey + recvWindow + JSON.stringify(params);
+      const queryString = JSON.stringify(params);
+      const signString = timestamp + apiKey + recvWindow + queryString;
       const sign = crypto.createHmac("sha256", apiSecret).update(signString).digest("hex");
 
+      // 🔄 Hacer la solicitud a Bybit con `POST`
       const response = await fetch(endpoint, {
         method: "POST",
         headers: {
@@ -86,17 +88,28 @@ export class SubaccountsService {
           "X-BAPI-RECV-WINDOW": recvWindow,
           "X-BAPI-SIGN": sign,
         },
-        body: JSON.stringify(params), // ✅ Enviar el JSON correctamente
+        body: queryString, // ✅ Enviar el JSON correctamente
       });
 
-      const data = await response.json();
-      console.log("🔍 Respuesta de Bybit:", JSON.stringify(data, null, 2)); // ✅ Log detallado para depuración
+      // 🔍 Leer la respuesta sin procesar (para depuración)
+      const text = await response.text();
+      console.log("🔍 Respuesta de Bybit (RAW):", text);
+
+      // 🔥 Intentar parsear la respuesta a JSON
+      let data;
+      try {
+        data = JSON.parse(text);
+        console.log("🔍 Respuesta de Bybit (JSON):", JSON.stringify(data, null, 2));
+      } catch (error) {
+        console.error("❌ Error al parsear JSON:", error.message);
+        throw new InternalServerErrorException("Bybit devolvió una respuesta inválida.");
+      }
 
       if (!response.ok || data.retCode !== 0) {
         throw new Error(`Error en la API de Bybit: ${data.retMsg || response.statusText}`);
       }
 
-      // 📌 Extraer el balance en USDT (cambia la moneda si es necesario)
+      // 📌 Extraer el balance en USDT
       const usdtBalance = data?.result?.list?.find((item: any) => item.coin === "USDT")?.walletBalance || 0;
 
       return parseFloat(usdtBalance);
