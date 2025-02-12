@@ -14,13 +14,17 @@ async function bootstrap() {
   await app.listen(process.env.PORT || 3000);
   Logger.log(`✅ Servidor corriendo en el puerto ${process.env.PORT || 3000}`, "Bootstrap");
 
-  // ✅ Mostrar todas las rutas registradas sin errores
-  const server = app.getHttpAdapter();
-  const routes = server.getInstance()._router.stack
-    .filter((r) => r.route)
-    .map((r) => r.route.path);
+  // ✅ Obtener rutas correctamente en NestJS
+  const httpServer = app.getHttpServer();
+  const router = httpServer._events.request._router;
+  const availableRoutes = router.stack
+    .filter((layer) => layer.route)
+    .map((layer) => ({
+      path: layer.route.path,
+      method: Object.keys(layer.route.methods)[0].toUpperCase(),
+    }));
 
   Logger.log("🔍 Rutas registradas en NestJS:", "Bootstrap");
-  Logger.log(routes, "Bootstrap");
+  console.table(availableRoutes);
 }
 bootstrap();
