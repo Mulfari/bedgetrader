@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Req, UseGuards, UnauthorizedException } from "@nestjs/common";
+import { Controller, Post, Get, Req, UseGuards, UnauthorizedException, Body } from "@nestjs/common";
 import { SubaccountsService } from "./subaccounts.service";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 
@@ -6,7 +6,6 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 export class SubaccountsController {
   constructor(private readonly subaccountsService: SubaccountsService) {}
 
-  // ✅ Endpoint para crear una nueva subcuenta
   @UseGuards(JwtAuthGuard)
   @Post()
   async createSubAccount(@Req() req: any, @Body() body: any) {
@@ -16,7 +15,6 @@ export class SubaccountsController {
     return this.subaccountsService.createSubAccount(req.user.sub, body);
   }
 
-  // ✅ Endpoint para obtener las subcuentas del usuario
   @UseGuards(JwtAuthGuard)
   @Get()
   async getUserSubAccounts(@Req() req: any) {
@@ -26,7 +24,7 @@ export class SubaccountsController {
     return this.subaccountsService.getSubAccounts(req.user.sub);
   }
 
-  // ✅ Nuevo endpoint para obtener balances de subcuentas
+  // ✅ Ruta corregida para obtener los balances de las subcuentas
   @UseGuards(JwtAuthGuard)
   @Get("balances")
   async getSubAccountBalances(@Req() req: any) {

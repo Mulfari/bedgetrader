@@ -6,7 +6,6 @@ import * as crypto from "crypto"; // Para firmar la solicitud a Bybit
 export class SubaccountsService {
   constructor(private prisma: PrismaService) {}
 
-  // ✅ Método para crear una subcuenta en la base de datos
   async createSubAccount(userId: string, data: any) {
     try {
       return await this.prisma.subAccount.create({
@@ -23,7 +22,6 @@ export class SubaccountsService {
     }
   }
 
-  // ✅ Método para obtener las subcuentas del usuario
   async getSubAccounts(userId: string) {
     try {
       return await this.prisma.subAccount.findMany({
@@ -35,7 +33,6 @@ export class SubaccountsService {
     }
   }
 
-  // ✅ Método para obtener balances desde Bybit
   async getSubAccountBalances(userId: string) {
     try {
       const subAccounts = await this.prisma.subAccount.findMany({
@@ -65,7 +62,6 @@ export class SubaccountsService {
     }
   }
 
-  // ✅ Método para consultar el balance en Bybit (usando `GET`)
   private async getBybitBalance(apiKey: string, apiSecret: string): Promise<number> {
     try {
       const endpoint = "https://api-testnet.bybit.com/v5/account/wallet-balance";
@@ -73,11 +69,9 @@ export class SubaccountsService {
       const recvWindow = "5000";
       const params = new URLSearchParams({ accountType: "UNIFIED" }).toString();
 
-      // 🔥 Firma corregida según Bybit
       const signString = timestamp + apiKey + recvWindow + params;
       const sign = crypto.createHmac("sha256", apiSecret).update(signString).digest("hex");
 
-      // 🔄 Hacer la solicitud a Bybit con `GET`
       const url = `${endpoint}?${params}`;
       const response = await fetch(url, {
         method: "GET",
@@ -90,11 +84,9 @@ export class SubaccountsService {
         },
       });
 
-      // 🔍 Leer la respuesta sin procesar (para depuración)
       const text = await response.text();
       console.log("🔍 Respuesta de Bybit (RAW):", text);
 
-      // 🔥 Intentar parsear la respuesta a JSON
       let data;
       try {
         data = JSON.parse(text);
@@ -108,7 +100,6 @@ export class SubaccountsService {
         throw new Error(`Error en la API de Bybit: ${data.retMsg || response.statusText}`);
       }
 
-      // 📌 Extraer el balance en USDT
       const usdtBalance = data?.result?.list?.find((item: any) => item.coin === "USDT")?.walletBalance || 0;
 
       return parseFloat(usdtBalance);
