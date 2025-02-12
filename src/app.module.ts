@@ -1,19 +1,26 @@
-import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config'; // ✅ Importa ConfigModule
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { AuthModule } from './auth/auth.module';
-import { PrismaModule } from './prisma.module';
-import { SubaccountsModule } from './subaccounts/subaccounts.module';
+import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
+import { AppController } from "./app.controller";
+import { AppService } from "./app.service";
 
 @Module({
-  imports: [
-    ConfigModule.forRoot(), // ✅ Cargar variables de entorno correctamente
-    AuthModule,
-    PrismaModule,
-    SubaccountsModule,
-  ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply((req, res, next) => {
+        res.header("Access-Control-Allow-Origin", "https://edgetrader.vercel.app");
+        res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+        res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+        res.header("Access-Control-Allow-Credentials", "true");
+
+        if (req.method === "OPTIONS") {
+          return res.sendStatus(200);
+        }
+
+        next();
+      })
+      .forRoutes("*");
+  }
+}
