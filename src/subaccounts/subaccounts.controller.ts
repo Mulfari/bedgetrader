@@ -15,6 +15,7 @@ export class SubaccountsController {
     return this.subaccountsService.createSubAccount(req.user.sub, body);
   }
 
+  // ✅ Ruta corregida para obtener las subcuentas del usuario
   @UseGuards(JwtAuthGuard)
   @Get()
   async getUserSubAccounts(@Req() req: any) {
@@ -22,15 +23,5 @@ export class SubaccountsController {
       throw new UnauthorizedException("Usuario no autenticado");
     }
     return this.subaccountsService.getSubAccounts(req.user.sub);
-  }
-
-  // ✅ Ruta corregida para obtener los balances de las subcuentas
-  @UseGuards(JwtAuthGuard)
-  @Get("balances")
-  async getSubAccountBalances(@Req() req: any) {
-    if (!req.user) {
-      throw new UnauthorizedException("Usuario no autenticado");
-    }
-    return this.subaccountsService.getSubAccountBalances(req.user.sub);
   }
 }
