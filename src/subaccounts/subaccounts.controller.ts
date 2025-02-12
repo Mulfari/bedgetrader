@@ -8,20 +8,29 @@ export class SubaccountsController {
 
   @UseGuards(JwtAuthGuard) 
   @Post()
-  async createSubAccount(@Req() req: any, @Body() body: any) {  // 🔹 Añadir tipo 'any' a req y body
+  async createSubAccount(@Req() req: any, @Body() body: any) {
     if (!req.user) {
       throw new UnauthorizedException("Usuario no autenticado");
     }
     return this.subaccountsService.createSubAccount(req.user.sub, body);
   }
 
-  // ✅ Nueva ruta para obtener las cuentas del usuario
   @UseGuards(JwtAuthGuard) 
   @Get()
-  async getUserSubAccounts(@Req() req: any) {  // 🔹 Añadir tipo 'any' a req
+  async getUserSubAccounts(@Req() req: any) {
     if (!req.user) {
       throw new UnauthorizedException("Usuario no autenticado");
     }
     return this.subaccountsService.getSubAccounts(req.user.sub);
+  }
+
+  // ✅ Nuevo endpoint para obtener balances de subcuentas
+  @UseGuards(JwtAuthGuard)
+  @Get("balances")
+  async getSubAccountBalances(@Req() req: any) {
+    if (!req.user) {
+      throw new UnauthorizedException("Usuario no autenticado");
+    }
+    return this.subaccountsService.getSubAccountBalances(req.user.sub);
   }
 }
