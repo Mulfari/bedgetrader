@@ -6,7 +6,8 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 export class SubaccountsController {
   constructor(private readonly subaccountsService: SubaccountsService) {}
 
-  @UseGuards(JwtAuthGuard) 
+  // ✅ Endpoint para crear una nueva subcuenta
+  @UseGuards(JwtAuthGuard)
   @Post()
   async createSubAccount(@Req() req: any, @Body() body: any) {
     if (!req.user) {
@@ -15,7 +16,8 @@ export class SubaccountsController {
     return this.subaccountsService.createSubAccount(req.user.sub, body);
   }
 
-  @UseGuards(JwtAuthGuard) 
+  // ✅ Endpoint para obtener las subcuentas del usuario
+  @UseGuards(JwtAuthGuard)
   @Get()
   async getUserSubAccounts(@Req() req: any) {
     if (!req.user) {
