@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Req, UseGuards, UnauthorizedException, Body } from "@nestjs/common";
+import { Controller, Get, Post, Req, UseGuards, UnauthorizedException, Body } from "@nestjs/common";
 import { SubaccountsService } from "./subaccounts.service";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 
@@ -15,7 +15,7 @@ export class SubaccountsController {
     return this.subaccountsService.createSubAccount(req.user.sub, body);
   }
 
-  // ✅ Ruta corregida para obtener las subcuentas del usuario
+  // ✅ Ruta para obtener las subcuentas del usuario autenticado
   @UseGuards(JwtAuthGuard)
   @Get()
   async getUserSubAccounts(@Req() req: any) {
