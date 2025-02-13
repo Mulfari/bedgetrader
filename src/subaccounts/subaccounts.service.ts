@@ -16,7 +16,6 @@ export class SubaccountsService {
       throw new NotFoundException("No tienes subcuentas registradas.");
     }
 
-    // Obtener balances de Bybit con logs detallados
     const subAccountsWithBalance = await Promise.all(
       subAccounts.map(async (sub) => {
         if (sub.exchange === "bybit") {
@@ -49,7 +48,7 @@ export class SubaccountsService {
     console.log("🔍 URL final:", url);
     console.log("🔍 Timestamp:", timestamp);
     console.log("🔍 Firma HMAC:", signature);
-    
+
     try {
       const response = await fetch(url, {
         method: "GET",
@@ -62,8 +61,11 @@ export class SubaccountsService {
         },
       });
 
-      const data = await response.json();
-      console.log("🔍 Respuesta de Bybit:", JSON.stringify(data, null, 2));
+      const textResponse = await response.text(); // 🔹 Obtener el texto en bruto
+      console.log("🔍 Respuesta completa de Bybit:", textResponse);
+
+      // Intentar parsear como JSON
+      const data = JSON.parse(textResponse);
 
       if (!response.ok) {
         console.error("❌ Error en la API de Bybit:", response.status, response.statusText);
