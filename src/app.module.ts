@@ -1,10 +1,24 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { AppController } from "./app.controller";
 import { AppService } from "./app.service";
+import { AuthModule } from "./auth/auth.module"; // ✅ Importamos AuthModule
+import { PrismaService } from "./prisma.service"; // ✅ Importamos PrismaService
+import { SubaccountsModule } from "./subaccounts/subaccounts.module"; // ✅ Importamos SubaccountsModule
+import { JwtModule } from "@nestjs/jwt";
+import { ConfigModule } from "@nestjs/config";
 
 @Module({
+  imports: [
+    ConfigModule.forRoot(), // ✅ Carga variables de entorno
+    AuthModule, // ✅ Módulo de autenticación
+    SubaccountsModule, // ✅ Módulo de subcuentas
+    JwtModule.register({
+      secret: process.env.JWT_SECRET || "default_secret", // ✅ Usa JWT_SECRET del .env
+      signOptions: { expiresIn: "7d" }, // ✅ Token válido por 7 días
+    }),
+  ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, PrismaService], // ✅ Registramos PrismaService
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
