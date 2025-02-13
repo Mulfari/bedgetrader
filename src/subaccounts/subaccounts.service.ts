@@ -16,10 +16,11 @@ export class SubaccountsService {
       throw new NotFoundException("No tienes subcuentas registradas.");
     }
 
-    // Obtener balances de Bybit
+    // Obtener balances de Bybit con logs detallados
     const subAccountsWithBalance = await Promise.all(
       subAccounts.map(async (sub) => {
         if (sub.exchange === "bybit") {
+          console.log(`🔹 Consultando balance para: ${sub.name} (ID: ${sub.id})`);
           const balance = await this.getBybitBalance(sub.apiKey, sub.apiSecret);
           return { id: sub.id, name: sub.name, exchange: sub.exchange, balance };
         }
@@ -27,10 +28,11 @@ export class SubaccountsService {
       })
     );
 
+    console.log("✅ Subcuentas con balance obtenido:", subAccountsWithBalance);
     return subAccountsWithBalance;
   }
 
-  // ✅ Función para obtener balance de Bybit
+  // ✅ Función para obtener balance de Bybit con logs detallados
   async getBybitBalance(apiKey: string, apiSecret: string) {
     const baseUrl = "https://api-testnet.bybit.com";
     const endpoint = "/v5/account/wallet-balance";
@@ -42,8 +44,14 @@ export class SubaccountsService {
     const signaturePayload = `${timestamp}${apiKey}${recvWindow}${queryString}`;
     const signature = crypto.createHmac("sha256", apiSecret).update(signaturePayload).digest("hex");
 
+    const url = `${baseUrl}${endpoint}?${queryString}`;
+
+    console.log("🔍 URL final:", url);
+    console.log("🔍 Timestamp:", timestamp);
+    console.log("🔍 Firma HMAC:", signature);
+    
     try {
-      const response = await fetch(`${baseUrl}${endpoint}?${queryString}`, {
+      const response = await fetch(url, {
         method: "GET",
         headers: {
           "X-BAPI-API-KEY": apiKey,
@@ -54,12 +62,14 @@ export class SubaccountsService {
         },
       });
 
+      const data = await response.json();
+      console.log("🔍 Respuesta de Bybit:", JSON.stringify(data, null, 2));
+
       if (!response.ok) {
         console.error("❌ Error en la API de Bybit:", response.status, response.statusText);
         throw new InternalServerErrorException("Error consultando balance en Bybit.");
       }
 
-      const data = await response.json();
       if (data.retCode !== 0) {
         console.error("❌ Error en respuesta de Bybit:", data.retMsg);
         throw new InternalServerErrorException("Bybit devolvió un error.");
