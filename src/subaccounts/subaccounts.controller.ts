@@ -1,8 +1,8 @@
-import { Controller, Get, Req, UseGuards, UnauthorizedException } from "@nestjs/common";
-import { SubaccountsService } from "./subaccounts.service";
-import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { Controller, Get, Req, UseGuards, UnauthorizedException } from '@nestjs/common';
+import { SubaccountsService } from './subaccounts.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
-@Controller("subaccounts")
+@Controller('subaccounts')
 export class SubaccountsController {
   constructor(private readonly subaccountsService: SubaccountsService) {}
 
@@ -10,8 +10,9 @@ export class SubaccountsController {
   @Get()
   async getUserSubAccounts(@Req() req: any) {
     if (!req.user) {
-      throw new UnauthorizedException("Usuario no autenticado");
+      throw new UnauthorizedException('Usuario no autenticado');
     }
+
     return this.subaccountsService.getSubAccounts(req.user.sub);
   }
 }
