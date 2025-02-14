@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, InternalServerErrorException } from "@nestjs/common";
+import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { PrismaService } from "../prisma.service";
 import * as crypto from "crypto";
 
@@ -6,79 +6,49 @@ import * as crypto from "crypto";
 export class SubaccountsService {
   constructor(private prisma: PrismaService) {}
 
-  async getSubAccounts(userId: string) {
-    const subAccounts = await this.prisma.subAccount.findMany({
-      where: { userId },
-      select: { id: true, name: true, exchange: true, apiKey: true, apiSecret: true },
-    });
-
-    if (subAccounts.length === 0) {
-      throw new NotFoundException("No tienes subcuentas registradas.");
-    }
-
-    const subAccountsWithBalance = await Promise.all(
-      subAccounts.map(async (sub) => {
-        if (sub.exchange === "bybit") {
-          console.log(`🔹 Consultando balance para: ${sub.name} (ID: ${sub.id})`);
-          const balance = await this.getBybitBalance(sub.apiKey, sub.apiSecret);
-          return { id: sub.id, name: sub.name, exchange: sub.exchange, balance };
-        }
-        return { id: sub.id, name: sub.name, exchange: sub.exchange, balance: null };
-      })
-    );
-
-    console.log("✅ Subcuentas con balance obtenido:", subAccountsWithBalance);
-    return subAccountsWithBalance;
-  }
-
-  // ✅ Función para obtener balance de Bybit con logs detallados
-  async getBybitBalance(apiKey: string, apiSecret: string) {
+  async getBybitBalance(apiKey: string, apiSecret: string): Promise<number | null> {
     const baseUrl = "https://api-testnet.bybit.com";
     const endpoint = "/v5/account/wallet-balance";
     const accountType = "UNIFIED";
+
     const timestamp = Date.now().toString();
     const recvWindow = "5000";
-
-    const queryString = `accountType=${accountType}`;
-    const signaturePayload = `${timestamp}${apiKey}${recvWindow}${queryString}`;
+    
+    // 🔹 Firma HMAC
+    const signaturePayload = `accountType=${accountType}&api_key=${apiKey}&recv_window=${recvWindow}&timestamp=${timestamp}`;
     const signature = crypto.createHmac("sha256", apiSecret).update(signaturePayload).digest("hex");
 
-    const url = `${baseUrl}${endpoint}?${queryString}`;
+    const url = `${baseUrl}${endpoint}?accountType=${accountType}&timestamp=${timestamp}&sign=${signature}`;
 
     console.log("🔍 URL final:", url);
-    console.log("🔍 Timestamp:", timestamp);
     console.log("🔍 Firma HMAC:", signature);
 
     try {
-      const response = await fetch(url, {
+      const proxyUrl = "http://brd.superproxy.io:33335";
+      const proxyAuth = "brd-customer-hl_41a62a42-zone-datacenter_proxy1:0emxj5daikfp";
+
+      const res = await fetch(url, {
         method: "GET",
         headers: {
           "X-BAPI-API-KEY": apiKey,
           "X-BAPI-TIMESTAMP": timestamp,
           "X-BAPI-RECV-WINDOW": recvWindow,
           "X-BAPI-SIGN": signature,
-          "Content-Type": "application/json",
+          "Proxy-Authorization": "Basic " + Buffer.from(proxyAuth).toString("base64"),
         },
       });
 
-      const textResponse = await response.text(); // 🔹 Obtener el texto en bruto
-      console.log("🔍 Respuesta completa de Bybit:", textResponse);
-
-      // Intentar parsear como JSON
-      const data = JSON.parse(textResponse);
-
-      if (!response.ok) {
-        console.error("❌ Error en la API de Bybit:", response.status, response.statusText);
-        throw new InternalServerErrorException("Error consultando balance en Bybit.");
-      }
+      const data = await res.json();
+      console.log("🔍 Respuesta de Bybit:", data);
 
       if (data.retCode !== 0) {
-        console.error("❌ Error en respuesta de Bybit:", data.retMsg);
-        throw new InternalServerErrorException("Bybit devolvió un error.");
+        console.error("❌ Error en la API de Bybit:", data.retMsg);
+        return null;
       }
 
-      const balance = data.result.list[0]?.totalWalletBalance || "0";
+      const balance = data.result.list?.[0]?.totalWalletBalance || "0";
       return parseFloat(balance);
+      
     } catch (error) {
       console.error("❌ Error obteniendo balance de Bybit:", error);
       return null;
