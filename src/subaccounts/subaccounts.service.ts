@@ -1,7 +1,8 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { PrismaService } from "../prisma.service";
 import * as crypto from "crypto";
 import * as rp from "request-promise";
+import tunnel from "tunnel"; // 📌 Necesario para manejar proxies con autenticación
 
 @Injectable()
 export class SubaccountsService {
@@ -9,71 +10,64 @@ export class SubaccountsService {
 
   async getSubAccounts(userId: string) {
     try {
-      // 🔹 Obtiene las subcuentas de la base de datos
       const subAccounts = await this.prisma.subAccount.findMany({
         where: { userId },
         select: { id: true, exchange: true, apiKey: true, apiSecret: true, name: true },
       });
 
-      // 🔹 Obtiene los balances de cada subcuenta
-      const accountsWithBalance = await Promise.all(
+      const subAccountsWithBalance = await Promise.all(
         subAccounts.map(async (sub) => {
           const balance = await this.getBybitBalance(sub.apiKey, sub.apiSecret);
           return { id: sub.id, name: sub.name, exchange: sub.exchange, balance };
         })
       );
 
-      console.log("✅ Subcuentas con balance obtenido:", accountsWithBalance);
-      return accountsWithBalance;
+      console.log("✅ Subcuentas con balance obtenido:", subAccountsWithBalance);
+      return subAccountsWithBalance;
     } catch (error) {
-      console.error("❌ Error obteniendo subcuentas:", error);
-      throw new Error("Error obteniendo subcuentas");
+      console.error("❌ Error obteniendo subcuentas:", error.message);
+      throw new UnauthorizedException("No se pudieron obtener las subcuentas.");
     }
   }
 
-  async getBybitBalance(apiKey: string, apiSecret: string) {
-    const baseUrl = "https://api-testnet.bybit.com";
-    const endpoint = "/v5/account/wallet-balance";
-    const queryString = "accountType=UNIFIED";
-    const recvWindow = "5000";
+  async getBybitBalance(apiKey: string, apiSecret: string): Promise<number | null> {
+    const API_URL = "https://api-testnet.bybit.com/v5/account/wallet-balance?accountType=UNIFIED";
+
     const timestamp = Date.now().toString();
+    const signaturePayload = `${timestamp}${apiKey}5000`;
+    const signature = crypto.createHmac("sha256", apiSecret).update(signaturePayload).digest("hex");
 
-    // 🔹 Generar firma HMAC
-    const signature = this.generateSignature(apiSecret, timestamp, recvWindow, queryString);
+    // 🔹 Configuración del proxy con túnel
+    const proxyOptions = {
+      proxy: {
+        host: "brd.superproxy.io",
+        port: 33335,
+        proxyAuth: "brd-customer-hl_41a62a42-zone-datacenter_proxy1-country-us:0emxj5daikfp",
+      },
+    };
 
-    // 🔹 Configuración del proxy de Bright Data
-    const proxyUrl = "http://brd-customer-hl_41a62a42-zone-datacenter_proxy1-country-us:0emxj5daikfp@brd.superproxy.io:33335";
+    const agent = tunnel.httpsOverHttp(proxyOptions); // 📌 Crear el túnel seguro
 
-    // 🔹 Opciones de la petición
     const options = {
+      uri: API_URL,
       method: "GET",
-      uri: `${baseUrl}${endpoint}?${queryString}`,
       headers: {
         "X-BAPI-API-KEY": apiKey,
-        "X-BAPI-TIMESTAMP": timestamp,
-        "X-BAPI-RECV-WINDOW": recvWindow,
         "X-BAPI-SIGN": signature,
+        "X-BAPI-TIMESTAMP": timestamp,
+        "X-BAPI-RECV-WINDOW": "5000",
       },
-      proxy: proxyUrl,
-      json: true, // 🔹 Parsear automáticamente la respuesta a JSON
+      agent, // 📌 Usa el túnel proxy
+      json: true, // 📌 Parsea automáticamente la respuesta JSON
     };
 
     try {
-      console.log("🔍 Consultando balance para:", options.uri);
-      console.log("🔍 Firma HMAC:", signature);
-
       const response = await rp(options);
-      console.log("✅ Respuesta de Bybit:", response);
-
-      return response?.result?.list[0]?.totalWalletBalance || 0;
+      console.log("🔍 Respuesta de Bybit:", response);
+      return response?.result?.list?.[0]?.totalWalletBalance || null;
     } catch (error) {
       console.error("❌ Error obteniendo balance de Bybit:", error.message);
       return null;
     }
-  }
-
-  private generateSignature(apiSecret: string, timestamp: string, recvWindow: string, queryString: string): string {
-    const preSign = `${timestamp}${apiSecret}${recvWindow}${queryString}`;
-    return crypto.createHmac("sha256", apiSecret).update(preSign).digest("hex");
   }
 }
