@@ -1,32 +1,23 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Req } from '@nestjs/common';
-import { SubaccountsService } from './subaccounts.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Controller, Get, Param, Req, UseGuards, UnauthorizedException } from "@nestjs/common";
+import { SubaccountsService } from "./subaccounts.service";
+import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 
-@Controller('subaccounts')
-@UseGuards(JwtAuthGuard) // ✅ Protegemos las rutas con autenticación
+@Controller("subaccounts")
 export class SubaccountsController {
   constructor(private readonly subaccountsService: SubaccountsService) {}
 
-  // ✅ Obtener todas las subcuentas del usuario autenticado
+  @UseGuards(JwtAuthGuard)
   @Get()
-  async getUserSubAccounts(@Req() req) {
-    const userId = req.user.sub; // Obtenemos el ID del usuario autenticado
-    return this.subaccountsService.getSubAccounts(userId);
+  async getUserSubAccounts(@Req() req: any) {
+    if (!req.user) throw new UnauthorizedException("Usuario no autenticado");
+    return this.subaccountsService.getSubAccounts(req.user.sub);
   }
 
-  // ✅ Crear una nueva subcuenta
-  @Post()
-  async createSubAccount(
-    @Req() req,
-    @Body() body: { exchange: string; name: string; apiKey: string; apiSecret: string },
-  ) {
-    const userId = req.user.sub;
-    return this.subaccountsService.createSubAccount(userId, body.exchange, body.name, body.apiKey, body.apiSecret);
-  }
-
-  // ✅ Obtener una subcuenta por ID
-  @Get(':id')
-  async getSubAccount(@Param('id') subAccountId: string) {
-    return this.subaccountsService.getSubAccountById(subAccountId);
+  // ✅ Nuevo endpoint para obtener API keys de una subcuenta
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/keys")
+  async getSubAccountKeys(@Req() req: any, @Param("id") subAccountId: string) {
+    if (!req.user) throw new UnauthorizedException("Usuario no autenticado");
+    return this.subaccountsService.getSubAccountKeys(req.user.sub, subAccountId);
   }
 }
