@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma.service";
 import * as crypto from "crypto";
-import rp from "request-promise";
+import * as rp from "request-promise";
 
 @Injectable()
 export class SubaccountsService {
