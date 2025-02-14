@@ -48,6 +48,11 @@ export class SubaccountsService {
       "http://brd-customer-hl_41a62a42-zone-datacenter_proxy1-country-us:0emxj5daikfp@brd.superproxy.io:33335"
     );
 
+    console.log("🔹 Enviando solicitud a Bybit...");
+    console.log("🔍 URL:", `${API_URL}?${queryString}`);
+    console.log("🔍 Timestamp:", timestamp);
+    console.log("🔍 Firma HMAC:", signature);
+
     try {
       const response = await fetch(`${API_URL}?${queryString}`, {
         method: "GET",
@@ -61,11 +66,16 @@ export class SubaccountsService {
         agent: proxyAgent,
       });
 
-      const textResponse = await response.text(); // Primero obtenemos la respuesta como texto
+      console.log("🔹 Estado de la respuesta:", response.status, response.statusText);
 
-      console.log("🔍 Respuesta cruda de Bybit:", textResponse); // 👀 Ver la respuesta sin procesar
+      if (!response.ok) {
+        throw new Error(`Error HTTP: ${response.status} ${response.statusText}`);
+      }
 
-      if (!textResponse) {
+      const textResponse = await response.text(); // Obtener la respuesta como texto para depuración
+      console.log("🔍 Respuesta cruda de Bybit:", textResponse);
+
+      if (!textResponse || textResponse.trim() === "") {
         throw new Error("Bybit devolvió una respuesta vacía.");
       }
 
@@ -77,6 +87,7 @@ export class SubaccountsService {
       }
 
       const balance = data.result?.list?.[0]?.totalWalletBalance || null;
+      console.log("✅ Balance obtenido:", balance);
       return balance;
     } catch (error) {
       console.error("❌ Error obteniendo balance de Bybit:", error);
