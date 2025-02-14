@@ -1,89 +1,78 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
-import { PrismaService } from '../prisma.service';
-import * as crypto from 'crypto';
-import fetch from 'node-fetch';
-import tunnel from 'tunnel';
+import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { PrismaService } from "../prisma.service";
+import fetch from "node-fetch";
+import * as crypto from "crypto";
+import { HttpsProxyAgent } from "https-proxy-agent";
 
 @Injectable()
 export class SubaccountsService {
   constructor(private prisma: PrismaService) {}
 
-  // ✅ Obtener todas las subcuentas de un usuario
   async getSubAccounts(userId: string) {
     try {
-      return await this.prisma.subAccount.findMany({
+      const subAccounts = await this.prisma.subAccount.findMany({
         where: { userId },
-        select: { id: true, name: true, exchange: true },
+        select: { id: true, name: true, exchange: true, apiKey: true, apiSecret: true },
       });
-    } catch (error) {
-      console.error('❌ Error obteniendo subcuentas:', error);
-      throw new HttpException('Error al obtener las subcuentas', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
 
-  // ✅ Obtener balances de subcuentas
-  async getSubAccountBalances(userId: string) {
-    try {
-      const subAccounts = await this.getSubAccounts(userId);
-
-      const balances = await Promise.all(
+      const subAccountsWithBalance = await Promise.all(
         subAccounts.map(async (account) => {
-          if (account.exchange !== 'bybit') {
-            return { ...account, balance: null };
+          if (account.exchange === "bybit") {
+            const balance = await this.getBybitBalance(account.apiKey, account.apiSecret);
+            return { id: account.id, name: account.name, exchange: account.exchange, balance };
           }
-          const balance = await this.getBybitBalance(account);
-          return { ...account, balance };
+          return { id: account.id, name: account.name, exchange: account.exchange, balance: null };
         })
       );
 
-      return balances;
+      return subAccountsWithBalance;
     } catch (error) {
-      console.error('❌ Error obteniendo balances:', error);
-      throw new HttpException('Error al obtener los balances de subcuentas', HttpStatus.INTERNAL_SERVER_ERROR);
+      console.error("❌ Error obteniendo subcuentas:", error);
+      throw new UnauthorizedException("Error obteniendo subcuentas");
     }
   }
 
-  // ✅ Obtener balance de una cuenta en Bybit
-  private async getBybitBalance(account: any) {
-    const API_URL = 'https://api-testnet.bybit.com/v5/account/wallet-balance?accountType=UNIFIED';
-
+  async getBybitBalance(apiKey: string, apiSecret: string) {
+    const API_URL = "https://api-testnet.bybit.com/v5/account/wallet-balance";
+    const accountType = "UNIFIED";
     const timestamp = Date.now().toString();
-    const signature = this.createSignature(account.apiKey, account.apiSecret, timestamp);
+    const recvWindow = "5000";
+    const queryString = `accountType=${accountType}`;
+
+    const signature = crypto
+      .createHmac("sha256", apiSecret)
+      .update(timestamp + apiKey + recvWindow + queryString)
+      .digest("hex");
+
+    const proxyAgent = new HttpsProxyAgent(
+      "http://brd-customer-hl_41a62a42-zone-datacenter_proxy1-country-us:0emxj5daikfp@brd.superproxy.io:33335"
+    );
 
     try {
-      const response = await fetch(API_URL, {
-        method: 'GET',
+      const response = await fetch(`${API_URL}?${queryString}`, {
+        method: "GET",
         headers: {
-          'X-BAPI-API-KEY': account.apiKey,
-          'X-BAPI-TIMESTAMP': timestamp,
-          'X-BAPI-SIGN': signature,
-          'X-BAPI-RECV-WINDOW': '5000',
+          "X-BAPI-API-KEY": apiKey,
+          "X-BAPI-TIMESTAMP": timestamp,
+          "X-BAPI-RECV-WINDOW": recvWindow,
+          "X-BAPI-SIGN": signature,
+          "Content-Type": "application/json",
         },
-        agent: tunnel.httpsOverHttp({
-          proxy: {
-            host: 'brd.superproxy.io',
-            port: 33335,
-            proxyAuth: 'brd-customer-hl_41a62a42-zone-datacenter_proxy1-country-us:0emxj5daikfp',
-          },
-        }),
+        agent: proxyAgent, // 🔥 Aquí agregamos el proxy
       });
 
       const data = await response.json();
+      console.log("🔍 Respuesta de Bybit:", data);
 
       if (data.retCode !== 0) {
         throw new Error(`Error en la API de Bybit: ${data.retMsg}`);
       }
 
-      return parseFloat(data.result.list[0].totalWalletBalance) || 0;
+      const balance = data.result?.list?.[0]?.totalWalletBalance || null;
+      return balance;
     } catch (error) {
-      console.error('❌ Error obteniendo balance de Bybit:', error);
+      console.error("❌ Error obteniendo balance de Bybit:", error);
       return null;
     }
-  }
-
-  // ✅ Generar firma HMAC para la autenticación en Bybit
-  private createSignature(apiKey: string, apiSecret: string, timestamp: string): string {
-    const params = `accountType=UNIFIED&api_key=${apiKey}&recv_window=5000&timestamp=${timestamp}`;
-    return crypto.createHmac('sha256', apiSecret).update(params).digest('hex');
   }
 }
