@@ -12,7 +12,6 @@ export class SubaccountsController {
     if (!req.user) {
       throw new UnauthorizedException('Usuario no autenticado');
     }
-
     return this.subaccountsService.getSubAccounts(req.user.sub);
   }
 }

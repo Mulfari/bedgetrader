@@ -1,70 +1,67 @@
-import { Injectable, UnauthorizedException, InternalServerErrorException } from '@nestjs/common';
-import { PrismaService } from '../prisma.service';
 import fetch from 'node-fetch';
 import * as crypto from 'crypto';
-import { HttpsProxyAgent } from 'https-proxy-agent';
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../prisma.service';
 
 @Injectable()
 export class SubaccountsService {
-  private readonly proxyUrl = 'http://brd-customer-hl_41a62a42-zone-datacenter_proxy1-country-ar:0emxj5daikfp@brd.superproxy.io:33335';
-
   constructor(private prisma: PrismaService) {}
+
+  async getBybitBalance(apiKey: string, apiSecret: string) {
+    const baseUrl = 'https://api-testnet.bybit.com';
+    const endpoint = '/v5/account/wallet-balance';
+    const timestamp = Date.now().toString();
+    const params = `accountType=UNIFIED`; // Ajusta según tu tipo de cuenta
+    const recvWindow = '5000';
+
+    // 🔹 Generar firma HMAC SHA256
+    const signature = crypto
+      .createHmac('sha256', apiSecret)
+      .update(timestamp + apiKey + recvWindow + params)
+      .digest('hex');
+
+    try {
+      const response = await fetch(`${baseUrl}${endpoint}?${params}`, {
+        method: 'GET',
+        headers: {
+          'X-BAPI-API-KEY': apiKey,
+          'X-BAPI-TIMESTAMP': timestamp,
+          'X-BAPI-RECV-WINDOW': recvWindow,
+          'X-BAPI-SIGN': signature,
+        },
+      });
+
+      const data = await response.json();
+      if (data.retCode !== 0) throw new Error(`Error en la API: ${data.retMsg}`);
+
+      return data.result.list[0]?.totalWalletBalance || '0.00';
+    } catch (error) {
+      console.error('❌ Error obteniendo balance de Bybit:', error);
+      return null;
+    }
+  }
 
   async getSubAccounts(userId: string) {
     try {
       const subAccounts = await this.prisma.subAccount.findMany({
         where: { userId },
-        select: { id: true, exchange: true, name: true },
+        select: { id: true, name: true, exchange: true, apiKey: true, apiSecret: true },
       });
 
-      console.log('✅ Subcuentas obtenidas:', subAccounts);
-      return subAccounts;
+      // 🔹 Obtener balances para cada subcuenta
+      const subAccountsWithBalance = await Promise.all(
+        subAccounts.map(async (sub) => ({
+          id: sub.id,
+          name: sub.name,
+          exchange: sub.exchange,
+          balance: await this.getBybitBalance(sub.apiKey, sub.apiSecret),
+        }))
+      );
+
+      return subAccountsWithBalance;
     } catch (error) {
       console.error('❌ Error obteniendo subcuentas:', error);
-      throw new InternalServerErrorException('Error al obtener subcuentas');
-    }
-  }
-
-  async getBybitBalance(apiKey: string, apiSecret: string): Promise<number | null> {
-    const endpoint = 'https://api-testnet.bybit.com/v5/account/wallet-balance?accountType=UNIFIED';
-    const timestamp = Date.now().toString();
-    const recvWindow = '5000';
-
-    const signaturePayload = `${timestamp}${apiKey}${recvWindow}`;
-    const signature = crypto.createHmac('sha256', apiSecret).update(signaturePayload).digest('hex');
-
-    console.log(`🔍 Consultando balance desde Argentina: ${endpoint}`);
-    console.log(`🔍 Firma HMAC: ${signature}`);
-
-    try {
-      const response = await fetch(endpoint, {
-        method: 'GET',
-        headers: {
-          'X-BAPI-API-KEY': apiKey,
-          'X-BAPI-SIGN': signature,
-          'X-BAPI-TIMESTAMP': timestamp,
-          'X-BAPI-RECV-WINDOW': recvWindow,
-        },
-        agent: new HttpsProxyAgent(this.proxyUrl),
-      });
-
-      if (!response.ok) {
-        console.error(`❌ Error HTTP: ${response.status} ${response.statusText}`);
-        throw new Error(`Error HTTP: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      console.log('🔍 Respuesta completa de Bybit:', JSON.stringify(data, null, 2));
-
-      if (data.retCode !== 0) {
-        throw new Error(`Bybit API Error: ${data.retMsg}`);
-      }
-
-      const totalBalance = parseFloat(data.result.list[0]?.totalWalletBalance || '0');
-      return totalBalance;
-    } catch (error) {
-      console.error('❌ Error obteniendo balance de Bybit:', error);
-      return null;
+      throw new Error('Error obteniendo subcuentas');
     }
   }
 }
