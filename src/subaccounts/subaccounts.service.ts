@@ -8,7 +8,7 @@ export class SubaccountsService {
   async getSubAccounts(userId: string) {
     return this.prisma.subAccount.findMany({
       where: { userId },
-      select: { id: true, exchange: true, name: true }, // No incluye API keys
+      select: { id: true, exchange: true, name: true, apiKey: true, apiSecret: true }, // Incluye API keys
     })
   }
 }
