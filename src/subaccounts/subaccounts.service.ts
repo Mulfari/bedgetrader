@@ -58,11 +58,19 @@ export class SubaccountsService {
           "X-BAPI-SIGN": signature,
           "Content-Type": "application/json",
         },
-        agent: proxyAgent, // 🔥 Aquí agregamos el proxy
+        agent: proxyAgent,
       });
 
-      const data = await response.json();
-      console.log("🔍 Respuesta de Bybit:", data);
+      const textResponse = await response.text(); // Primero obtenemos la respuesta como texto
+
+      console.log("🔍 Respuesta cruda de Bybit:", textResponse); // 👀 Ver la respuesta sin procesar
+
+      if (!textResponse) {
+        throw new Error("Bybit devolvió una respuesta vacía.");
+      }
+
+      const data = JSON.parse(textResponse); // Intentamos parsear el JSON
+      console.log("🔍 Respuesta de Bybit parseada:", data);
 
       if (data.retCode !== 0) {
         throw new Error(`Error en la API de Bybit: ${data.retMsg}`);
