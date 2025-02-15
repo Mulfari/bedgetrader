@@ -56,11 +56,11 @@ export class SubaccountsService {
       const apiSecret = subAccount.apiSecret;
       const recvWindow = "5000";
 
-      // TODOS los parámetros deben incluirse en el queryString
-      const queryString = `api_key=${apiKey}&recv_window=${recvWindow}&timestamp=${timestamp}`;
-      const signature = crypto.createHmac('sha256', apiSecret).update(queryString).digest('hex');
+      // 🔹 Ordenar los parámetros correctamente
+      const params = `api_key=${apiKey}&recv_window=${recvWindow}&timestamp=${timestamp}`;
+      const signature = crypto.createHmac('sha256', apiSecret).update(params).digest('hex');
 
-      // 🔹 Configurar headers
+      // 🔹 Headers corregidos
       const headers = {
         'X-BYBIT-API-KEY': apiKey,
         'X-BYBIT-TIMESTAMP': timestamp,
