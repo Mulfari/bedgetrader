@@ -13,53 +13,24 @@ export class SubaccountsService {
         id: true,
         name: true,
         exchange: true,
-        apiKey: true,
-        apiSecret: true,
       },
     });
   }
 
-  // ✅ Crear una nueva subcuenta
-  async createSubAccount(userId: string, exchange: string, name: string, apiKey: string, apiSecret: string) {
-    try {
-      const newSubAccount = await this.prisma.subAccount.create({
-        data: {
-          userId,
-          exchange,
-          name,
-          apiKey,
-          apiSecret,
-        },
-      });
-
-      console.log("✅ Subcuenta creada:", newSubAccount);
-      return newSubAccount;
-    } catch (error) {
-      console.error("❌ Error creando subcuenta:", error);
-      throw new Error("No se pudo crear la subcuenta.");
-    }
-  }
-
-  // ✅ Eliminar una subcuenta (validando el usuario)
-  async deleteSubAccount(userId: string, subAccountId: string) {
-    // Primero verificamos que la subcuenta existe y pertenece al usuario
+  // ✅ Obtener API Keys de una subcuenta específica
+  async getSubAccountKeys(userId: string, subAccountId: string) {
     const subAccount = await this.prisma.subAccount.findUnique({
       where: { id: subAccountId },
+      select: {
+        apiKey: true,
+        apiSecret: true,
+      },
     });
 
     if (!subAccount) {
-      throw new NotFoundException("Subcuenta no encontrada.");
+      throw new NotFoundException('Subcuenta no encontrada.');
     }
 
-    if (subAccount.userId !== userId) {
-      throw new ForbiddenException("No tienes permiso para eliminar esta subcuenta.");
-    }
-
-    // Eliminamos la subcuenta
-    await this.prisma.subAccount.delete({
-      where: { id: subAccountId },
-    });
-
-    return { message: "Subcuenta eliminada correctamente." };
+    return subAccount;
   }
 }

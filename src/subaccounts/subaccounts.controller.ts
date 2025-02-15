@@ -1,33 +1,27 @@
-import { Controller, Get, Post, Delete, Body, Param, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Param, UseGuards, Req, NotFoundException } from '@nestjs/common';
 import { SubaccountsService } from './subaccounts.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('subaccounts')
-@UseGuards(JwtAuthGuard) // ✅ Protegemos las rutas con autenticación
+@UseGuards(JwtAuthGuard) // Protegemos las rutas con autenticación
 export class SubaccountsController {
   constructor(private readonly subaccountsService: SubaccountsService) {}
 
   // ✅ Obtener todas las subcuentas del usuario autenticado
   @Get()
   async getUserSubAccounts(@Req() req) {
-    const userId = req.user.sub; // Obtenemos el ID del usuario autenticado
+    const userId = req.user.sub;
     return this.subaccountsService.getSubAccounts(userId);
   }
 
-  // ✅ Crear una nueva subcuenta
-  @Post()
-  async createSubAccount(
-    @Req() req,
-    @Body() body: { exchange: string; name: string; apiKey: string; apiSecret: string },
-  ) {
+  // ✅ Obtener API Keys de una subcuenta específica
+  @Get(':id/keys')
+  async getSubAccountKeys(@Req() req, @Param('id') subAccountId: string) {
     const userId = req.user.sub;
-    return this.subaccountsService.createSubAccount(userId, body.exchange, body.name, body.apiKey, body.apiSecret);
-  }
-
-  // ✅ Eliminar una subcuenta por ID
-  @Delete(':id')
-  async deleteSubAccount(@Req() req, @Param('id') subAccountId: string) {
-    const userId = req.user.sub;
-    return this.subaccountsService.deleteSubAccount(userId, subAccountId);
+    const keys = await this.subaccountsService.getSubAccountKeys(userId, subAccountId);
+    if (!keys) {
+      throw new NotFoundException('No se encontraron API Keys para esta subcuenta.');
+    }
+    return keys;
   }
 }
