@@ -23,12 +23,25 @@ export class SubaccountsController {
   @Get()
   async getSubAccounts(@Req() req) {
     try {
-      const userId = req.user.sub; // ID del usuario desde el token JWT
+      const userId = req.user.sub;
       console.log(`🔹 Buscando subcuentas para el usuario: ${userId}`);
       return await this.subaccountsService.getSubAccounts(userId);
     } catch (error) {
       console.error('❌ Error obteniendo subcuentas:', error);
       throw new HttpException('Error al obtener subcuentas', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  // ✅ Obtener API keys de una subcuenta específica
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/keys')
+  async getSubAccountKeys(@Req() req, @Param('id') id: string) {
+    try {
+      const userId = req.user.sub;
+      return await this.subaccountsService.getSubAccountKeys(id, userId);
+    } catch (error) {
+      console.error('❌ Error obteniendo API keys:', error);
+      throw new HttpException(error.message, error.status || HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
@@ -44,7 +57,6 @@ export class SubaccountsController {
     }
 
     try {
-      console.log(`🆕 Creando subcuenta para usuario ${userId}:`, body);
       return await this.subaccountsService.createSubAccount(userId, exchange, apiKey, apiSecret, name);
     } catch (error) {
       console.error('❌ Error al crear subcuenta:', error);
@@ -64,7 +76,6 @@ export class SubaccountsController {
     }
 
     try {
-      console.log(`✏️ Actualizando subcuenta ${id} para usuario ${userId}`);
       return await this.subaccountsService.updateSubAccount(id, userId, exchange, apiKey, apiSecret, name);
     } catch (error) {
       console.error('❌ Error al actualizar subcuenta:', error);
@@ -79,7 +90,6 @@ export class SubaccountsController {
     const userId = req.user.sub;
 
     try {
-      console.log(`🗑️ Eliminando subcuenta ${id} para usuario ${userId}`);
       return await this.subaccountsService.deleteSubAccount(id, userId);
     } catch (error) {
       console.error('❌ Error al eliminar subcuenta:', error);
