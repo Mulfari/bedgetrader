@@ -2,6 +2,7 @@ import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import axios from 'axios';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class SubaccountsService {
@@ -51,27 +52,47 @@ export class SubaccountsService {
         'http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001',
       );
 
+      // 🔹 Generar firma para la API de Bybit
+      const timestamp = Date.now().toString();
+      const apiKey = subAccount.apiKey;
+      const apiSecret = subAccount.apiSecret;
+      const recvWindow = "5000";
+      const queryString = `api_key=${apiKey}&timestamp=${timestamp}&recv_window=${recvWindow}`;
+      const signature = crypto.createHmac('sha256', apiSecret).update(queryString).digest('hex');
+
       // Configurar headers para la API de Bybit
       const headers = {
-        'X-BYBIT-API-KEY': subAccount.apiKey,
+        'X-BYBIT-API-KEY': apiKey,
+        'X-BYBIT-TIMESTAMP': timestamp,
+        'X-BYBIT-RECV-WINDOW': recvWindow,
+        'X-BYBIT-SIGN': signature,
       };
 
-      // Hacer solicitud a la API de Bybit para obtener el balance
+      // 🔹 Hacer solicitud a la API de Bybit (Bybit V5)
       const response = await axios.get(
-        'https://api.bybit.com/v2/private/wallet/balance',
+        'https://api.bybit.com/v5/account/wallet-balance',
         {
           headers,
           httpsAgent: proxyAgent,
         },
       );
 
-      if (response.data.ret_code !== 0) {
+      console.log("✅ Respuesta de Bybit:", response.data);
+
+      if (!response.data || response.data.retCode !== 0) {
         throw new HttpException('Error al obtener balance de Bybit', HttpStatus.BAD_REQUEST);
       }
 
-      return response.data;
+      // Extraer balance en USDT
+      const usdtBalance = response.data.result.list
+        .flatMap((wallet: any) => wallet.coin)
+        .find((coin: any) => coin.coin === "USDT");
+
+      return {
+        balance: usdtBalance ? usdtBalance.availableToWithdraw : 0,
+      };
     } catch (error) {
-      console.error('❌ Error obteniendo balance de Bybit:', error);
+      console.error('❌ Error en getSubAccountBalance:', error.response?.data || error.message);
       throw new HttpException('Error al obtener balance', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
