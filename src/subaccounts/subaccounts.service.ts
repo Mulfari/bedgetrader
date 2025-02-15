@@ -1,76 +1,65 @@
-import { Injectable, HttpException, HttpStatus } from "@nestjs/common";
-import { PrismaService } from "../prisma.service";
-import { createHmac } from "crypto";
-import fetch from "node-fetch";
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { PrismaService } from '../prisma.service';
 
 @Injectable()
 export class SubaccountsService {
   constructor(private prisma: PrismaService) {}
 
+  // ✅ Obtener todas las subcuentas de un usuario
   async getSubAccounts(userId: string) {
-    try {
-      return await this.prisma.subAccount.findMany({ where: { userId } });
-    } catch (error) {
-      console.error("❌ Error obteniendo subcuentas:", error);
-      throw new HttpException("Error al obtener subcuentas", HttpStatus.BAD_REQUEST);
-    }
+    return this.prisma.subAccount.findMany({ where: { userId } });
   }
 
-  async getSubAccountKeys(subAccountId: string, userId: string) {
-    try {
-      const subAccount = await this.prisma.subAccount.findUnique({
-        where: { id: subAccountId, userId },
-      });
-
-      if (!subAccount) throw new Error("Subcuenta no encontrada");
-      return { apiKey: subAccount.apiKey, apiSecret: subAccount.apiSecret };
-    } catch (error) {
-      console.error("❌ Error obteniendo API Keys:", error);
-      throw new HttpException("Error al obtener API Keys", HttpStatus.BAD_REQUEST);
-    }
+  // ✅ Crear una nueva subcuenta
+  async createSubAccount(userId: string, exchange: string, apiKey: string, apiSecret: string, name: string) {
+    return this.prisma.subAccount.create({
+      data: { userId, exchange, apiKey, apiSecret, name },
+    });
   }
 
-  async getBybitBalance(subAccountId: string) {
-    try {
-      const subAccount = await this.prisma.subAccount.findUnique({ where: { id: subAccountId } });
-      if (!subAccount) throw new Error("Subcuenta no encontrada");
-
-      // 🔍 Si `exchange` está vacío, usa Testnet; si es "bybit", usa producción.
-      const BASE_URL = subAccount.exchange === "bybit" ? "https://api.bybit.com" : "https://api-testnet.bybit.com";
-      const endpoint = "/v5/account/wallet-balance?accountType=UNIFIED";
-      const url = `${BASE_URL}${endpoint}`;
-
-      console.log(`🔍 Consultando balance en: ${url} para subcuenta: ${subAccount.name}`);
-
-      // 🔑 Obtener las API Keys de la subcuenta
-      const { apiKey, apiSecret } = subAccount;
-      if (!apiKey || !apiSecret) throw new Error("API Key o Secret Key faltante");
-
-      // 🔐 Generar firma HMAC
-      const timestamp = Date.now().toString();
-      const params = `accountType=UNIFIED`;
-      const signMessage = `${timestamp}${apiKey}5000${params}`;
-      const signature = createHmac("sha256", apiSecret).update(signMessage).digest("hex");
-
-      // 🌍 Hacer la solicitud a Bybit
-      const response = await fetch(`${url}&${params}`, {
-        method: "GET",
-        headers: {
-          "X-BAPI-API-KEY": apiKey,
-          "X-BAPI-TIMESTAMP": timestamp,
-          "X-BAPI-SIGN": signature,
-          "X-BAPI-RECV-WINDOW": "5000",
-        },
-      });
-
-      const data = await response.json();
-      if (data.retCode !== 0) throw new Error(`Error de Bybit: ${data.retMsg}`);
-
-      console.log("✅ Balance obtenido:", data);
-      return data.result;
-    } catch (error) {
-      console.error("❌ Error obteniendo balance de Bybit:", error);
-      throw new HttpException("Error al obtener el balance de Bybit", HttpStatus.BAD_REQUEST);
+  // ✅ Obtener una subcuenta específica
+  async getSubAccount(userId: string, subAccountId: string) {
+    const subAccount = await this.prisma.subAccount.findUnique({ where: { id: subAccountId } });
+    if (!subAccount || subAccount.userId !== userId) {
+      throw new NotFoundException('Subcuenta no encontrada.');
     }
+    return subAccount;
+  }
+
+  // ✅ Actualizar una subcuenta
+  async updateSubAccount(userId: string, subAccountId: string, exchange: string, apiKey: string, apiSecret: string, name: string) {
+    const subAccount = await this.prisma.subAccount.findUnique({ where: { id: subAccountId } });
+    if (!subAccount || subAccount.userId !== userId) {
+      throw new ForbiddenException('No tienes permiso para modificar esta subcuenta.');
+    }
+
+    return this.prisma.subAccount.update({
+      where: { id: subAccountId },
+      data: { exchange, apiKey, apiSecret, name },
+    });
+  }
+
+  // ✅ Eliminar una subcuenta
+  async deleteSubAccount(userId: string, subAccountId: string) {
+    const subAccount = await this.prisma.subAccount.findUnique({ where: { id: subAccountId } });
+    if (!subAccount || subAccount.userId !== userId) {
+      throw new ForbiddenException('No tienes permiso para eliminar esta subcuenta.');
+    }
+
+    return this.prisma.subAccount.delete({ where: { id: subAccountId } });
+  }
+
+  // ✅ Obtener las API Keys de una subcuenta para el balance
+  async getSubAccountKeys(userId: string, subAccountId: string) {
+    const subAccount = await this.prisma.subAccount.findUnique({
+      where: { id: subAccountId },
+      select: { apiKey: true, apiSecret: true },
+    });
+
+    if (!subAccount) {
+      throw new NotFoundException('Subcuenta no encontrada.');
+    }
+
+    return subAccount; // Devolverá las API Keys para que el frontend haga la solicitud a Bybit.
   }
 }
