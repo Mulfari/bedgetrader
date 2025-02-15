@@ -47,9 +47,9 @@ export class SubaccountsService {
         throw new HttpException('Subcuenta no encontrada', HttpStatus.NOT_FOUND);
       }
 
-      // Configurar proxy con SmartProxy
+      // 🔹 Configurar el proxy con autenticación correcta
       const proxyAgent = new HttpsProxyAgent(
-        'http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001',
+        'http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001'
       );
 
       // 🔹 Generar firma para la API de Bybit
@@ -73,7 +73,7 @@ export class SubaccountsService {
         'https://api.bybit.com/v5/account/wallet-balance',
         {
           headers,
-          httpsAgent: proxyAgent,
+          httpsAgent: proxyAgent, // Usar proxy autenticado
         },
       );
 
