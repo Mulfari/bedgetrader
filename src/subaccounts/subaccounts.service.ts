@@ -37,12 +37,10 @@ export class SubaccountsService {
   // ✅ Obtener el balance de una subcuenta en Bybit
   async getSubAccountBalance(subAccountId: string, userId: string) {
     try {
-      // Buscar la subcuenta en la base de datos
       const subAccount = await this.prisma.subAccount.findUnique({
         where: { id: subAccountId },
       });
 
-      // Verificar si la subcuenta pertenece al usuario
       if (!subAccount || subAccount.userId !== userId) {
         throw new HttpException('Subcuenta no encontrada', HttpStatus.NOT_FOUND);
       }
@@ -57,10 +55,12 @@ export class SubaccountsService {
       const apiKey = subAccount.apiKey;
       const apiSecret = subAccount.apiSecret;
       const recvWindow = "5000";
-      const queryString = `api_key=${apiKey}&timestamp=${timestamp}&recv_window=${recvWindow}`;
+
+      // TODOS los parámetros deben incluirse en el queryString
+      const queryString = `api_key=${apiKey}&recv_window=${recvWindow}&timestamp=${timestamp}`;
       const signature = crypto.createHmac('sha256', apiSecret).update(queryString).digest('hex');
 
-      // Configurar headers para la API de Bybit
+      // 🔹 Configurar headers
       const headers = {
         'X-BYBIT-API-KEY': apiKey,
         'X-BYBIT-TIMESTAMP': timestamp,
@@ -68,14 +68,14 @@ export class SubaccountsService {
         'X-BYBIT-SIGN': signature,
       };
 
-      // 🔹 Hacer solicitud a la API de Bybit (Bybit V5)
-      const response = await axios.get(
-        'https://api.bybit.com/v5/account/wallet-balance',
-        {
-          headers,
-          httpsAgent: proxyAgent, // Usar proxy autenticado
-        },
-      );
+      // 🔹 URL corregida con "accountType=UNIFIED"
+      const url = 'https://api.bybit.com/v5/account/wallet-balance?accountType=UNIFIED';
+
+      // 🔹 Hacer la solicitud a Bybit
+      const response = await axios.get(url, {
+        headers,
+        httpsAgent: proxyAgent, // Usar proxy autenticado
+      });
 
       console.log("✅ Respuesta de Bybit:", response.data);
 
