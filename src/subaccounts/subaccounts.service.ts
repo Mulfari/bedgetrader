@@ -45,22 +45,22 @@ export class SubaccountsService {
         throw new HttpException('Subcuenta no encontrada', HttpStatus.NOT_FOUND);
       }
 
-      // 🔹 Configurar el proxy con autenticación correcta
+      // Configurar el proxy con autenticación correcta
       const proxyAgent = new HttpsProxyAgent(
         'http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001'
       );
 
-      // 🔹 Generar firma para la API de Bybit
+      // Generar firma para la API de Bybit
       const timestamp = Date.now().toString();
       const apiKey = subAccount.apiKey;
       const apiSecret = subAccount.apiSecret;
       const recvWindow = "5000";
 
-      // 🔹 Ordenar los parámetros correctamente
+      // Ordenar los parámetros correctamente
       const params = `api_key=${apiKey}&recv_window=${recvWindow}&timestamp=${timestamp}`;
       const signature = crypto.createHmac('sha256', apiSecret).update(params).digest('hex');
 
-      // 🔹 Headers corregidos
+      // Headers corregidos
       const headers = {
         'X-BYBIT-API-KEY': apiKey,
         'X-BYBIT-TIMESTAMP': timestamp,
@@ -68,10 +68,10 @@ export class SubaccountsService {
         'X-BYBIT-SIGN': signature,
       };
 
-      // 🔹 URL corregida con "accountType=UNIFIED"
+      // URL corregida con "accountType=UNIFIED"
       const url = 'https://api.bybit.com/v5/account/wallet-balance?accountType=UNIFIED';
 
-      // 🔹 Hacer la solicitud a Bybit
+      // Hacer la solicitud a Bybit
       const response = await axios.get(url, {
         headers,
         httpsAgent: proxyAgent, // Usar proxy autenticado
