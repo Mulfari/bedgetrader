@@ -45,6 +45,19 @@ export class SubaccountsController {
     }
   }
 
+  // ✅ Obtener el balance de una subcuenta desde Bybit
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/balance')
+  async getSubAccountBalance(@Req() req, @Param('id') id: string) {
+    try {
+      const userId = req.user.sub;
+      return await this.subaccountsService.getSubAccountBalance(id, userId);
+    } catch (error) {
+      console.error('❌ Error obteniendo balance:', error);
+      throw new HttpException('Error al obtener balance', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
   // ✅ Crear una nueva subcuenta
   @UseGuards(JwtAuthGuard)
   @Post()
