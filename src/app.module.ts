@@ -6,12 +6,14 @@ import { PrismaService } from "./prisma.service"; // ✅ Importamos PrismaServic
 import { SubaccountsModule } from "./subaccounts/subaccounts.module"; // ✅ Importamos SubaccountsModule
 import { JwtModule } from "@nestjs/jwt";
 import { ConfigModule } from "@nestjs/config";
+import { ProxyTestModule } from './proxy-test/proxy-test.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot(), // ✅ Carga variables de entorno
     AuthModule, // ✅ Módulo de autenticación
-    SubaccountsModule, // ✅ Módulo de subcuentas
+    SubaccountsModule,
+    ProxyTestModule, // ✅ Módulo de subcuentas
     JwtModule.register({
       secret: process.env.JWT_SECRET || "default_secret", // ✅ Usa JWT_SECRET del .env
       signOptions: { expiresIn: "7d" }, // ✅ Token válido por 7 días
