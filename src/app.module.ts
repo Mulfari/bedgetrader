@@ -7,13 +7,15 @@ import { SubaccountsModule } from "./subaccounts/subaccounts.module"; // ✅ Imp
 import { JwtModule } from "@nestjs/jwt";
 import { ConfigModule } from "@nestjs/config";
 import { ProxyTestModule } from './proxy-test/proxy-test.module';
+import { AccountDetailsModule } from './account-details/account-details.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot(), // ✅ Carga variables de entorno
     AuthModule, // ✅ Módulo de autenticación
     SubaccountsModule,
-    ProxyTestModule, // ✅ Módulo de subcuentas
+    ProxyTestModule,
+    AccountDetailsModule, // ✅ Módulo de subcuentas
     JwtModule.register({
       secret: process.env.JWT_SECRET || "default_secret", // ✅ Usa JWT_SECRET del .env
       signOptions: { expiresIn: "7d" }, // ✅ Token válido por 7 días
