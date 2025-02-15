@@ -1,23 +1,33 @@
-import { Controller, Get, Param, Req, UseGuards, UnauthorizedException } from "@nestjs/common";
-import { SubaccountsService } from "./subaccounts.service";
-import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { Controller, Get, Post, Delete, Body, Param, UseGuards, Req } from '@nestjs/common';
+import { SubaccountsService } from './subaccounts.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
-@Controller("subaccounts")
+@Controller('subaccounts')
+@UseGuards(JwtAuthGuard) // ✅ Protegemos las rutas con autenticación
 export class SubaccountsController {
   constructor(private readonly subaccountsService: SubaccountsService) {}
 
-  @UseGuards(JwtAuthGuard)
+  // ✅ Obtener todas las subcuentas del usuario autenticado
   @Get()
-  async getUserSubAccounts(@Req() req: any) {
-    if (!req.user) throw new UnauthorizedException("Usuario no autenticado");
-    return this.subaccountsService.getSubAccounts(req.user.sub);
+  async getUserSubAccounts(@Req() req) {
+    const userId = req.user.sub; // Obtenemos el ID del usuario autenticado
+    return this.subaccountsService.getSubAccounts(userId);
   }
 
-  // ✅ Nuevo endpoint para obtener API keys de una subcuenta
-  @UseGuards(JwtAuthGuard)
-  @Get(":id/keys")
-  async getSubAccountKeys(@Req() req: any, @Param("id") subAccountId: string) {
-    if (!req.user) throw new UnauthorizedException("Usuario no autenticado");
-    return this.subaccountsService.getSubAccountKeys(req.user.sub, subAccountId);
+  // ✅ Crear una nueva subcuenta
+  @Post()
+  async createSubAccount(
+    @Req() req,
+    @Body() body: { exchange: string; name: string; apiKey: string; apiSecret: string },
+  ) {
+    const userId = req.user.sub;
+    return this.subaccountsService.createSubAccount(userId, body.exchange, body.name, body.apiKey, body.apiSecret);
+  }
+
+  // ✅ Eliminar una subcuenta por ID
+  @Delete(':id')
+  async deleteSubAccount(@Req() req, @Param('id') subAccountId: string) {
+    const userId = req.user.sub;
+    return this.subaccountsService.deleteSubAccount(userId, subAccountId);
   }
 }
