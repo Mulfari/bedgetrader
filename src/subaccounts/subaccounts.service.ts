@@ -1,65 +1,64 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 
 @Injectable()
 export class SubaccountsService {
   constructor(private prisma: PrismaService) {}
 
-  // ✅ Obtener todas las subcuentas de un usuario
+  // ✅ Obtener subcuentas del usuario autenticado
   async getSubAccounts(userId: string) {
-    return this.prisma.subAccount.findMany({ where: { userId } });
+    try {
+      return await this.prisma.subAccount.findMany({ where: { userId } });
+    } catch (error) {
+      console.error('❌ Error obteniendo subcuentas:', error);
+      throw new HttpException('Error al obtener subcuentas', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
 
   // ✅ Crear una nueva subcuenta
   async createSubAccount(userId: string, exchange: string, apiKey: string, apiSecret: string, name: string) {
-    return this.prisma.subAccount.create({
-      data: { userId, exchange, apiKey, apiSecret, name },
-    });
+    try {
+      return await this.prisma.subAccount.create({
+        data: { userId, exchange, apiKey, apiSecret, name },
+      });
+    } catch (error) {
+      console.error('❌ Error creando subcuenta:', error);
+      throw new HttpException('Error al crear subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
 
-  // ✅ Obtener una subcuenta específica
-  async getSubAccount(userId: string, subAccountId: string) {
-    const subAccount = await this.prisma.subAccount.findUnique({ where: { id: subAccountId } });
-    if (!subAccount || subAccount.userId !== userId) {
-      throw new NotFoundException('Subcuenta no encontrada.');
-    }
-    return subAccount;
-  }
+  // ✅ Actualizar una subcuenta existente
+  async updateSubAccount(id: string, userId: string, exchange: string, apiKey: string, apiSecret: string, name: string) {
+    try {
+      // Verificar si la subcuenta existe y pertenece al usuario
+      const subAccount = await this.prisma.subAccount.findUnique({ where: { id } });
+      if (!subAccount || subAccount.userId !== userId) {
+        throw new HttpException('Subcuenta no encontrada o no pertenece al usuario', HttpStatus.NOT_FOUND);
+      }
 
-  // ✅ Actualizar una subcuenta
-  async updateSubAccount(userId: string, subAccountId: string, exchange: string, apiKey: string, apiSecret: string, name: string) {
-    const subAccount = await this.prisma.subAccount.findUnique({ where: { id: subAccountId } });
-    if (!subAccount || subAccount.userId !== userId) {
-      throw new ForbiddenException('No tienes permiso para modificar esta subcuenta.');
+      return await this.prisma.subAccount.update({
+        where: { id },
+        data: { exchange, apiKey, apiSecret, name },
+      });
+    } catch (error) {
+      console.error('❌ Error actualizando subcuenta:', error);
+      throw new HttpException('Error al actualizar subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
     }
-
-    return this.prisma.subAccount.update({
-      where: { id: subAccountId },
-      data: { exchange, apiKey, apiSecret, name },
-    });
   }
 
   // ✅ Eliminar una subcuenta
-  async deleteSubAccount(userId: string, subAccountId: string) {
-    const subAccount = await this.prisma.subAccount.findUnique({ where: { id: subAccountId } });
-    if (!subAccount || subAccount.userId !== userId) {
-      throw new ForbiddenException('No tienes permiso para eliminar esta subcuenta.');
+  async deleteSubAccount(id: string, userId: string) {
+    try {
+      // Verificar si la subcuenta existe y pertenece al usuario
+      const subAccount = await this.prisma.subAccount.findUnique({ where: { id } });
+      if (!subAccount || subAccount.userId !== userId) {
+        throw new HttpException('Subcuenta no encontrada o no pertenece al usuario', HttpStatus.NOT_FOUND);
+      }
+
+      return await this.prisma.subAccount.delete({ where: { id } });
+    } catch (error) {
+      console.error('❌ Error eliminando subcuenta:', error);
+      throw new HttpException('Error al eliminar subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
     }
-
-    return this.prisma.subAccount.delete({ where: { id: subAccountId } });
-  }
-
-  // ✅ Obtener las API Keys de una subcuenta para el balance
-  async getSubAccountKeys(userId: string, subAccountId: string) {
-    const subAccount = await this.prisma.subAccount.findUnique({
-      where: { id: subAccountId },
-      select: { apiKey: true, apiSecret: true },
-    });
-
-    if (!subAccount) {
-      throw new NotFoundException('Subcuenta no encontrada.');
-    }
-
-    return subAccount; // Devolverá las API Keys para que el frontend haga la solicitud a Bybit.
   }
 }

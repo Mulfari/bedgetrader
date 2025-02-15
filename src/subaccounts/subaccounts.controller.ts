@@ -1,4 +1,16 @@
-import { Controller, Get, Post, Body, Param, Delete, Put, UseGuards, Req, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Req,
+  HttpException,
+  HttpStatus,
+  UseGuards,
+} from '@nestjs/common';
 import { SubaccountsService } from './subaccounts.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -6,55 +18,72 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 export class SubaccountsController {
   constructor(private readonly subaccountsService: SubaccountsService) {}
 
-  // ✅ Obtener todas las subcuentas del usuario
+  // ✅ Obtener todas las subcuentas del usuario autenticado
   @UseGuards(JwtAuthGuard)
   @Get()
   async getSubAccounts(@Req() req) {
-    const userId = req.user.sub; // ID del usuario autenticado
-    return this.subaccountsService.getSubAccounts(userId);
+    try {
+      const userId = req.user.sub; // ID del usuario desde el token JWT
+      console.log(`🔹 Buscando subcuentas para el usuario: ${userId}`);
+      return await this.subaccountsService.getSubAccounts(userId);
+    } catch (error) {
+      console.error('❌ Error obteniendo subcuentas:', error);
+      throw new HttpException('Error al obtener subcuentas', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
 
   // ✅ Crear una nueva subcuenta
   @UseGuards(JwtAuthGuard)
   @Post()
-  async createSubAccount(@Req() req, @Body() body: { exchange: string; apiKey: string; apiSecret: string; name: string }) {
-    const userId = req.user.sub; // ID del usuario autenticado
-    return this.subaccountsService.createSubAccount(userId, body.exchange, body.apiKey, body.apiSecret, body.name);
-  }
-
-  // ✅ Obtener una subcuenta específica por ID
-  @UseGuards(JwtAuthGuard)
-  @Get(':id')
-  async getSubAccount(@Req() req, @Param('id') subAccountId: string) {
+  async createSubAccount(@Req() req, @Body() body) {
+    const { exchange, apiKey, apiSecret, name } = body;
     const userId = req.user.sub;
-    return this.subaccountsService.getSubAccount(userId, subAccountId);
+
+    if (!exchange || !apiKey || !apiSecret || !name) {
+      throw new HttpException('Todos los campos son obligatorios', HttpStatus.BAD_REQUEST);
+    }
+
+    try {
+      console.log(`🆕 Creando subcuenta para usuario ${userId}:`, body);
+      return await this.subaccountsService.createSubAccount(userId, exchange, apiKey, apiSecret, name);
+    } catch (error) {
+      console.error('❌ Error al crear subcuenta:', error);
+      throw new HttpException('Error al crear subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
 
-  // ✅ Actualizar una subcuenta
+  // ✅ Actualizar una subcuenta existente
   @UseGuards(JwtAuthGuard)
   @Put(':id')
-  async updateSubAccount(
-    @Req() req,
-    @Param('id') subAccountId: string,
-    @Body() body: { exchange: string; apiKey: string; apiSecret: string; name: string }
-  ) {
+  async updateSubAccount(@Req() req, @Param('id') id: string, @Body() body) {
+    const { exchange, apiKey, apiSecret, name } = body;
     const userId = req.user.sub;
-    return this.subaccountsService.updateSubAccount(userId, subAccountId, body.exchange, body.apiKey, body.apiSecret, body.name);
+
+    if (!exchange || !apiKey || !apiSecret || !name) {
+      throw new HttpException('Todos los campos son obligatorios', HttpStatus.BAD_REQUEST);
+    }
+
+    try {
+      console.log(`✏️ Actualizando subcuenta ${id} para usuario ${userId}`);
+      return await this.subaccountsService.updateSubAccount(id, userId, exchange, apiKey, apiSecret, name);
+    } catch (error) {
+      console.error('❌ Error al actualizar subcuenta:', error);
+      throw new HttpException('Error al actualizar subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
 
   // ✅ Eliminar una subcuenta
   @UseGuards(JwtAuthGuard)
   @Delete(':id')
-  async deleteSubAccount(@Req() req, @Param('id') subAccountId: string) {
+  async deleteSubAccount(@Req() req, @Param('id') id: string) {
     const userId = req.user.sub;
-    return this.subaccountsService.deleteSubAccount(userId, subAccountId);
-  }
 
-  // ✅ Obtener las API Keys de una subcuenta para que el frontend haga la solicitud del balance
-  @UseGuards(JwtAuthGuard)
-  @Get(':id/keys')
-  async getSubAccountKeys(@Req() req, @Param('id') subAccountId: string) {
-    const userId = req.user.sub;
-    return this.subaccountsService.getSubAccountKeys(userId, subAccountId);
+    try {
+      console.log(`🗑️ Eliminando subcuenta ${id} para usuario ${userId}`);
+      return await this.subaccountsService.deleteSubAccount(id, userId);
+    } catch (error) {
+      console.error('❌ Error al eliminar subcuenta:', error);
+      throw new HttpException('Error al eliminar subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
 }
