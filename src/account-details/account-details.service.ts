@@ -61,31 +61,44 @@ export class AccountDetailsService {
 
       console.log("📡 Enviando solicitud a Bybit...");
 
-      // 🔹 Hacer la solicitud a Bybit
-      const response = await axios.get(url, {
+      // 🔹 Hacer la solicitud a Bybit con tiempo de espera y reintento en caso de fallo
+      const axiosConfig = {
         headers,
-        params: queryParams, // 🔹 Ahora pasamos `accountType=UNIFIED` correctamente
-        httpsAgent: proxyAgent, // Usar proxy autenticado
-      });
+        params: queryParams,
+        httpsAgent: proxyAgent,
+        timeout: 5000, // 🔹 Timeout de 5 segundos para evitar esperas largas
+      };
+
+      let response;
+      try {
+        response = await axios.get(url, axiosConfig);
+      } catch (error) {
+        console.error("❌ Error en primera solicitud a Bybit, reintentando...");
+        response = await axios.get(url, axiosConfig);
+      }
 
       console.log("✅ Respuesta de Bybit:", JSON.stringify(response.data, null, 2));
 
       if (!response.data || response.data.retCode !== 0) {
+        console.error(`❌ Error en Bybit: ${response.data.retMsg} (Código: ${response.data.retCode})`);
+
+        if (response.data.retCode === 10003) {
+          throw new HttpException('❌ API Key inválida o sin permisos', HttpStatus.FORBIDDEN);
+        }
+
         throw new HttpException(`Error en Bybit: ${response.data.retMsg}`, HttpStatus.BAD_REQUEST);
       }
 
-      // 🔹 Extraer balance en USDT
-      const usdtWallet = response.data.result.list.find((wallet: any) =>
+      // 🔹 Extraer balance en USDT de manera segura
+      const usdtWallet = response.data.result.list?.find((wallet: any) =>
         wallet.coin.some((coin: any) => coin.coin === "USDT")
       );
 
-      const usdtBalance = usdtWallet
-        ? usdtWallet.coin.find((coin: any) => coin.coin === "USDT").availableToWithdraw
-        : 0;
+      const usdtBalance = usdtWallet?.coin.find((coin: any) => coin.coin === "USDT")?.availableToWithdraw ?? 0;
 
       console.log(`💰 Balance USDT: ${usdtBalance} USDT`);
 
-      return { balance: usdtBalance };
+      return { balance: isNaN(usdtBalance) ? 0 : usdtBalance };
     } catch (error) {
       console.error('❌ Error en getAccountBalance:', error.response?.data || error.message);
       throw new HttpException('Error al obtener balance', HttpStatus.INTERNAL_SERVER_ERROR);
