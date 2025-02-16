@@ -22,16 +22,17 @@ export class AccountDetailsService {
         where: { userId },
       });
 
-      if (!account) {
-        console.error(`❌ No se encontró ninguna cuenta con userId: ${userId}`);
-        throw new HttpException('Cuenta no encontrada', HttpStatus.NOT_FOUND);
+      if (!account || !account.apiKey || !account.apiSecret) {
+        console.error(`❌ No se encontró una API Key válida para userId: ${userId}`);
+        throw new HttpException('Cuenta sin credenciales API', HttpStatus.NOT_FOUND);
       }
 
       console.log(`✅ Cuenta encontrada: ${account.id}`);
+      console.log(`🔍 Usando API Key: ${account.apiKey}`);
 
-      // 🔹 Configurar el proxy con autenticación
+      // 🔹 Configurar el proxy correctamente usando cadena de conexión directa
       const proxyAgent = new HttpsProxyAgent(
-        'http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001'
+        "http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001"
       );
 
       // 🔹 Parámetros de autenticación
@@ -41,12 +42,15 @@ export class AccountDetailsService {
       const recvWindow = "5000";
 
       // 🔹 QueryString requerido por Bybit V5
-      const queryParams = { accountType: "UNIFIED" }; // Cambiar a "SPOT" si es necesario
+      const queryParams = { accountType: "UNIFIED" };
       const queryString = new URLSearchParams(queryParams).toString();
 
-      // 🔹 Crear el string para firmar (IMPORTANTE: concatenación sin `&`)
+      // 🔹 Crear el string para firmar
       const signPayload = `${timestamp}${apiKey}${recvWindow}${queryString}`;
       const signature = crypto.createHmac('sha256', apiSecret).update(signPayload).digest('hex');
+
+      console.log(`🔍 String para firmar: ${signPayload}`);
+      console.log(`🔍 Firma generada: ${signature}`);
 
       // 🔹 Headers actualizados para Bybit V5
       const headers = {
