@@ -93,16 +93,12 @@ export class AccountDetailsService {
         throw new HttpException(`Error en Bybit: ${response.data.retMsg}`, HttpStatus.BAD_REQUEST);
       }
 
-      // 🔹 Extraer balance en USDT de manera segura
-      const usdtWallet = response.data.result.list?.find((wallet: any) =>
-        wallet.coin.some((coin: any) => coin.coin === "USDT")
-      );
+      // 🔹 Extraer totalEquity en USDT (El balance general de la cuenta)
+      const totalEquity = parseFloat(response.data.result.list?.[0]?.totalEquity ?? "0");
 
-      const usdtBalance = usdtWallet?.coin.find((coin: any) => coin.coin === "USDT")?.availableToWithdraw ?? 0;
+      console.log(`💰 Total Equity: ${totalEquity} USDT`);
 
-      console.log(`💰 Balance USDT: ${usdtBalance} USDT`);
-
-      return { balance: isNaN(usdtBalance) ? 0 : usdtBalance };
+      return { balance: isNaN(totalEquity) ? 0 : totalEquity };
     } catch (error) {
       console.error('❌ Error en getAccountBalance:', error.response?.data || error.message);
       throw new HttpException('Error al obtener balance', HttpStatus.INTERNAL_SERVER_ERROR);
