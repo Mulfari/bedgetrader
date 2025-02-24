@@ -34,7 +34,7 @@ export class SubaccountsService {
     }
   }
 
-  // ✅ Obtener el balance de una subcuenta en Bybit o FTX
+  // ✅ Obtener el balance de una subcuenta en Bybit
   async getSubAccountBalance(subAccountId: string, userId: string) {
     try {
       const subAccount = await this.prisma.subAccount.findUnique({
@@ -50,7 +50,7 @@ export class SubaccountsService {
         'http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001'
       );
 
-      // Generar firma para la API de Bybit o FTX
+      // Generar firma para la API de Bybit
       const timestamp = Date.now().toString();
       const apiKey = subAccount.apiKey;
       const apiSecret = subAccount.apiSecret;
@@ -68,26 +68,19 @@ export class SubaccountsService {
         'X-BYBIT-SIGN': signature,
       };
 
-      // Determinar la URL en función del exchange
-      let url;
-      if (subAccount.exchange === 'bybit') {
-        url = 'https://api.bybit.com/v5/account/wallet-balance?accountType=UNIFIED';
-      } else if (subAccount.exchange === 'ftx') {
-        url = 'https://api-demo.bybit.com/v5/account/wallet-balance?accountType=UNIFIED';
-      } else {
-        throw new HttpException('Exchange no soportado', HttpStatus.BAD_REQUEST);
-      }
+      // URL corregida con "accountType=UNIFIED"
+      const url = 'https://api.bybit.com/v5/account/wallet-balance?accountType=UNIFIED';
 
-      // Hacer la solicitud al exchange correspondiente
+      // Hacer la solicitud a Bybit
       const response = await axios.get(url, {
         headers,
         httpsAgent: proxyAgent, // Usar proxy autenticado
       });
 
-      console.log("✅ Respuesta del exchange:", response.data);
+      console.log("✅ Respuesta de Bybit:", response.data);
 
       if (!response.data || response.data.retCode !== 0) {
-        throw new HttpException('Error al obtener balance del exchange', HttpStatus.BAD_REQUEST);
+        throw new HttpException('Error al obtener balance de Bybit', HttpStatus.BAD_REQUEST);
       }
 
       // Extraer balance en USDT
