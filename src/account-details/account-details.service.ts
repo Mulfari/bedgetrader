@@ -63,7 +63,7 @@ export class AccountDetailsService {
       // 🔹 URL de Bybit para obtener el balance
       const url = `https://api-demo.bybit.com/v5/account/wallet-balance`;
 
-      console.log("📡 Enviando solicitud a Bybit...");
+      console.log("📡 Enviando solicitud a Bybit...");a
 
       // 🔹 Hacer la solicitud a Bybit con tiempo de espera y reintento en caso de fallo
       const axiosConfig = {
