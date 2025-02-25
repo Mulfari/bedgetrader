@@ -38,12 +38,15 @@ export class SubaccountsService {
   async getSubAccountBalance(subAccountId: string, userId: string) {
     try {
       const subAccount = await this.prisma.subAccount.findUnique({
-        where: { id: subAccountId },
+        where: { id: subAccountId }, // 🔴 Asegurar que se busca con subAccountId, NO con userId
       });
-
+  
       if (!subAccount || subAccount.userId !== userId) {
         throw new HttpException('Subcuenta no encontrada', HttpStatus.NOT_FOUND);
       }
+  
+      console.log(`📡 Enviando solicitud a Bybit para subAccountId: ${subAccountId}`);
+  
 
       // Configurar el proxy con autenticación correcta
       const proxyAgent = new HttpsProxyAgent(
