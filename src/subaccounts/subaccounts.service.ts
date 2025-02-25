@@ -68,8 +68,15 @@ export class SubaccountsService {
         'X-BYBIT-SIGN': signature,
       };
 
+      // Determinar la URL base según el exchange
+      const baseUrl = subAccount.exchange === "FTX" 
+        ? "https://api-demo.bybit.com" 
+        : "https://api.bybit.com";
+
       // URL corregida con "accountType=UNIFIED"
-      const url = 'https://api-demo.bybit.com/v5/account/wallet-balance?accountType=UNIFIED';
+      const url = `${baseUrl}/v5/account/wallet-balance?accountType=UNIFIED`;
+
+      console.log(`📡 Enviando solicitud a ${baseUrl}...`);
 
       // Hacer la solicitud a Bybit
       const response = await axios.get(url, {
