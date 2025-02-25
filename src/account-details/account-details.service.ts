@@ -98,7 +98,8 @@ export class AccountDetailsService {
 
       console.log(`💰 Total Equity: ${totalEquity} USDT`);
 
-      return { balance: isNaN(totalEquity) ? 0 : totalEquity };
+      // 🔹 Devolver la respuesta completa
+      return response.data;
     } catch (error) {
       console.error('❌ Error en getAccountBalance:', error.response?.data || error.message);
       throw new HttpException('Error al obtener balance', HttpStatus.INTERNAL_SERVER_ERROR);
