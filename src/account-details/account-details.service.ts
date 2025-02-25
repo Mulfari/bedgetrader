@@ -65,7 +65,7 @@ export class AccountDetailsService {
 
       console.log("📡 Enviando solicitud a Bybit...");
 
-      // 🔹 Hacer la solicitud a Bybit con tiempo de espera y reintento en caso de fallo
+      // 🔹 Hacer la solicitud a Bybit con tiempo de espera
       const axiosConfig = {
         headers,
         params: queryParams,
@@ -73,13 +73,7 @@ export class AccountDetailsService {
         timeout: 5000, // 🔹 Timeout de 5 segundos para evitar esperas largas
       };
 
-      let response;
-      try {
-        response = await axios.get(url, axiosConfig);
-      } catch (error) {
-        console.error("❌ Error en primera solicitud a Bybit, reintentando...");
-        response = await axios.get(url, axiosConfig);
-      }
+      const response = await axios.get(url, axiosConfig);
 
       console.log("✅ Respuesta de Bybit:", JSON.stringify(response.data, null, 2));
 
@@ -92,11 +86,6 @@ export class AccountDetailsService {
 
         throw new HttpException(`Error en Bybit: ${response.data.retMsg}`, HttpStatus.BAD_REQUEST);
       }
-
-      // 🔹 Extraer totalEquity en USDT (El balance general de la cuenta)
-      const totalEquity = parseFloat(response.data.result.list?.[0]?.totalEquity ?? "0");
-
-      console.log(`💰 Total Equity: ${totalEquity} USDT`);
 
       // 🔹 Devolver la respuesta completa
       return response.data;
