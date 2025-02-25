@@ -61,7 +61,7 @@ export class AccountDetailsService {
       };
 
       // 🔹 URL de Bybit para obtener el balance
-      const url = `https://api-demo.bybit.com/v5/account/wallet-balance`;
+      const url = `https://api.bybit.com/v5/account/wallet-balance`;
 
       console.log("📡 Enviando solicitud a Bybit...");
 
@@ -98,8 +98,7 @@ export class AccountDetailsService {
 
       console.log(`💰 Total Equity: ${totalEquity} USDT`);
 
-      // 🔹 Devolver la respuesta completa
-      return response.data;
+      return { balance: isNaN(totalEquity) ? 0 : totalEquity };
     } catch (error) {
       console.error('❌ Error en getAccountBalance:', error.response?.data || error.message);
       throw new HttpException('Error al obtener balance', HttpStatus.INTERNAL_SERVER_ERROR);
