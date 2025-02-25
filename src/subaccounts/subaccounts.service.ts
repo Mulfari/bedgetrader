@@ -70,7 +70,7 @@ export class SubaccountsService {
 
       // Determinar la URL base según el exchange
       const baseUrl = subAccount.exchange === "FTX" 
-        ? "https://api.bybit.com" 
+        ? "https://api-demo.bybit.com" 
         : "https://api.bybit.com";
 
       // URL corregida con "accountType=UNIFIED"
