@@ -60,15 +60,10 @@ export class AccountDetailsService {
         'X-BAPI-SIGN': signature,
       };
 
-      // 🔹 Determinar la URL base según el exchange
-      const baseUrl = account.exchange === "FTX" 
-        ? "https://api-demo.bybit.com" 
-        : "https://api.bybit.com";
-
       // 🔹 URL de Bybit para obtener el balance
-      const url = `${baseUrl}/v5/account/wallet-balance`;
+      const url = `https://api-demo.bybit.com/v5/account/wallet-balance`;
 
-      console.log(`📡 Enviando solicitud a ${baseUrl}...`);
+      console.log("📡 Enviando solicitud a Bybit...");
 
       // 🔹 Hacer la solicitud a Bybit con tiempo de espera y reintento en caso de fallo
       const axiosConfig = {
