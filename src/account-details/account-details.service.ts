@@ -8,29 +8,30 @@ import * as crypto from 'crypto';
 export class AccountDetailsService {
   constructor(private prisma: PrismaService) {}
 
-  // ✅ Obtener el balance de una cuenta en Bybit
-  async getAccountBalance(userId: string) {
+  // ✅ Obtener el balance de una subcuenta en Bybit
+  async getAccountBalance(subAccountId: string, userId: string) {
     try {
-      if (!userId) {
-        console.error("❌ Error: userId no proporcionado.");
-        throw new HttpException('ID de usuario requerido', HttpStatus.BAD_REQUEST);
+      if (!subAccountId || !userId) {
+        console.error("❌ Error: subAccountId o userId no proporcionado.");
+        throw new HttpException('ID de subcuenta y usuario requeridos', HttpStatus.BAD_REQUEST);
       }
 
-      console.log(`📡 Buscando cuenta en la base de datos para userId: ${userId}`);
+      console.log(`📡 Buscando subcuenta en la base de datos para subAccountId: ${subAccountId}`);
 
+      // 🔹 Buscar la subcuenta correcta asegurando que pertenece al usuario
       const account = await this.prisma.subAccount.findFirst({
-        where: { userId },
+        where: { id: subAccountId, userId }, // ✅ Buscar por ID y validar usuario
       });
 
       if (!account || !account.apiKey || !account.apiSecret) {
-        console.error(`❌ No se encontró una API Key válida para userId: ${userId}`);
-        throw new HttpException('Cuenta sin credenciales API', HttpStatus.NOT_FOUND);
+        console.error(`❌ No se encontró una API Key válida para subAccountId: ${subAccountId}`);
+        throw new HttpException('Subcuenta sin credenciales API', HttpStatus.NOT_FOUND);
       }
 
-      console.log(`✅ Cuenta encontrada: ${account.id}`);
-      console.log(`🔍 Usando API Key: ${account.apiKey}`);
+      console.log(`✅ Subcuenta encontrada: ${account.id}`);
+      console.log(`🔑 API Key usada para subAccountId ${subAccountId}: ${account.apiKey}`);
 
-      // 🔹 Configurar el proxy correctamente usando cadena de conexión directa
+      // 🔹 Configurar proxy
       const proxyAgent = new HttpsProxyAgent(
         "http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001"
       );
@@ -46,7 +47,7 @@ export class AccountDetailsService {
       const queryString = new URLSearchParams(queryParams).toString();
 
       // 🔹 Crear el string para firmar
-      const signPayload = `${timestamp}${apiKey}${recvWindow}${queryString}`;
+      const signPayload = `${timestamp}${apiKey}${recvWindow}${queryString || ""}`;
       const signature = crypto.createHmac('sha256', apiSecret).update(signPayload).digest('hex');
 
       console.log(`🔍 String para firmar: ${signPayload}`);
@@ -75,7 +76,7 @@ export class AccountDetailsService {
 
       const response = await axios.get(url, axiosConfig);
 
-      console.log("✅ Respuesta de Bybit:", JSON.stringify(response.data, null, 2));
+      console.log(`📡 Respuesta de Bybit para subAccountId ${subAccountId}:`, JSON.stringify(response.data, null, 2));
 
       if (!response.data || response.data.retCode !== 0) {
         console.error(`❌ Error en Bybit: ${response.data.retMsg} (Código: ${response.data.retCode})`);
@@ -87,8 +88,15 @@ export class AccountDetailsService {
         throw new HttpException(`Error en Bybit: ${response.data.retMsg}`, HttpStatus.BAD_REQUEST);
       }
 
-      // 🔹 Devolver la respuesta completa
-      return response.data;
+      // 🔹 Extraer balance en USDT
+      const usdtBalance = response.data.result.list
+        .flatMap((wallet: any) => wallet.coin)
+        .find((coin: any) => coin.coin === "USDT");
+
+      return {
+        balance: usdtBalance ? usdtBalance.availableToWithdraw : 0,
+      };
+
     } catch (error) {
       console.error('❌ Error en getAccountBalance:', error.response?.data || error.message);
       throw new HttpException('Error al obtener balance', HttpStatus.INTERNAL_SERVER_ERROR);
