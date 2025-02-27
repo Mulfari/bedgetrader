@@ -20,7 +20,7 @@ export class AccountDetailsService {
 
       // 🔹 Buscar la subcuenta correcta asegurando que pertenece al usuario
       const account = await this.prisma.subAccount.findFirst({
-        where: { id: subAccountId, userId }, // ✅ Buscar por ID y validar usuario
+        where: { id: subAccountId, userId },
       });
 
       if (!account || !account.apiKey || !account.apiSecret) {
@@ -88,14 +88,8 @@ export class AccountDetailsService {
         throw new HttpException(`Error en Bybit: ${response.data.retMsg}`, HttpStatus.BAD_REQUEST);
       }
 
-      // 🔹 Extraer balance en USDT
-      const usdtBalance = response.data.result.list
-        .flatMap((wallet: any) => wallet.coin)
-        .find((coin: any) => coin.coin === "USDT");
-
-      return {
-        balance: usdtBalance ? usdtBalance.availableToWithdraw : 0,
-      };
+      // 🔹 Enviar la respuesta completa de Bybit al frontend
+      return response.data.result;
 
     } catch (error) {
       console.error('❌ Error en getAccountBalance:', error.response?.data || error.message);
