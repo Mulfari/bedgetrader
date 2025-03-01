@@ -8,21 +8,42 @@ async function bootstrap() {
 
   // 🔹 Definir orígenes permitidos dinámicamente
   const allowedOrigins = [
-    "https://edgetrader.vercel.app", // Producción
-    "http://localhost:3000", // Desarrollo
+    "https://edgetrader.vercel.app",    // Producción
+    "http://localhost:3000",            // Desarrollo local
+    "http://localhost:3001",            // Desarrollo local alternativo
   ];
 
+  // 🔹 Configuración CORS más específica
   app.enableCors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      // Permitir solicitudes sin origen (como las de Postman)
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      if (allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        callback(new Error("❌ CORS bloqueado para esta solicitud."));
+        console.log(`❌ Origen bloqueado: ${origin}`);
+        callback(new Error('No permitido por CORS'));
       }
     },
-    methods: "GET,POST,PUT,DELETE,OPTIONS",
-    allowedHeaders: "Content-Type, Authorization",
-    credentials: true, // Si usas cookies o headers de autenticación
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allowedHeaders: [
+      "Origin",
+      "X-Requested-With",
+      "Content-Type",
+      "Accept",
+      "Authorization",
+      "X-BAPI-SIGN",
+      "X-BAPI-API-KEY",
+      "X-BAPI-TIMESTAMP",
+      "X-BAPI-RECV-WINDOW"
+    ],
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 204
   });
 
   const port = process.env.PORT || 3000;
