@@ -109,4 +109,18 @@ export class SubaccountsController {
       throw new HttpException('Error al eliminar subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
+
+  // ✅ Obtener una subcuenta específica por ID
+  @UseGuards(JwtAuthGuard)
+  @Get(':id')
+  async getSubAccount(@Req() req, @Param('id') id: string) {
+    try {
+      const userId = req.user.sub;
+      console.log(`🔹 Buscando subcuenta específica: ${id} para usuario: ${userId}`);
+      return await this.subaccountsService.getSubAccount(id, userId);
+    } catch (error) {
+      console.error(`❌ Error obteniendo subcuenta ${id}:`, error);
+      throw new HttpException(error.message, error.status || HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
 }
