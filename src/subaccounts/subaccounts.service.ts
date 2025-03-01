@@ -17,26 +17,6 @@ export class SubaccountsService {
     }
   }
 
-  // ✅ Obtener una subcuenta específica por ID
-  async getSubAccount(subAccountId: string, userId: string) {
-    try {
-      const subAccount = await this.prisma.subAccount.findUnique({
-        where: { id: subAccountId },
-      });
-
-      if (!subAccount || subAccount.userId !== userId) {
-        throw new HttpException('Subcuenta no encontrada', HttpStatus.NOT_FOUND);
-      }
-
-      return subAccount;
-    } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new HttpException('Error al obtener subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
   // ✅ Obtener las API keys de una subcuenta
   async getSubAccountKeys(subAccountId: string, userId: string) {
     try {
