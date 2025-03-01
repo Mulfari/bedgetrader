@@ -24,11 +24,36 @@ export class SubaccountsController {
   async getSubAccounts(@Req() req) {
     try {
       const userId = req.user.sub;
-      console.log(`🔹 Buscando subcuentas para el usuario: ${userId}`);
-      return await this.subaccountsService.getSubAccounts(userId);
+      console.log(`🔹 Solicitud para obtener subcuentas del usuario: ${userId}`);
+      
+      const subAccounts = await this.subaccountsService.getSubAccounts(userId);
+      console.log(`✅ Se encontraron ${subAccounts.length} subcuentas para el usuario ${userId}`);
+      
+      // Filtrar información sensible antes de devolver los datos
+      const filteredSubAccounts = subAccounts.map(account => ({
+        ...account,
+        apiKey: account.apiKey ? `${account.apiKey.substring(0, 5)}...` : null,
+        apiSecret: account.apiSecret ? '********' : null,
+        user: account.user ? {
+          id: account.user.id,
+          email: account.user.email,
+          name: account.user.name
+        } : null
+      }));
+      
+      return filteredSubAccounts;
     } catch (error) {
-      console.error('❌ Error obteniendo subcuentas:', error);
-      throw new HttpException('Error al obtener subcuentas', HttpStatus.INTERNAL_SERVER_ERROR);
+      console.error('❌ Error detallado al obtener subcuentas:', error);
+      
+      // Propagar el mensaje de error específico si está disponible
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      
+      throw new HttpException(
+        `Error al obtener subcuentas: ${error.message || 'Error desconocido'}`, 
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
     }
   }
 
@@ -62,18 +87,44 @@ export class SubaccountsController {
   @UseGuards(JwtAuthGuard)
   @Post()
   async createSubAccount(@Req() req, @Body() body) {
-    const { exchange, apiKey, apiSecret, name } = body;
+    const { exchange, apiKey, apiSecret, name, isDemo } = body;
     const userId = req.user.sub;
 
+    console.log(`🔹 Solicitud para crear subcuenta recibida para usuario: ${userId}`);
+    
+    // Validar campos obligatorios
     if (!exchange || !apiKey || !apiSecret || !name) {
+      console.error('❌ Faltan campos obligatorios en la solicitud');
       throw new HttpException('Todos los campos son obligatorios', HttpStatus.BAD_REQUEST);
     }
 
     try {
-      return await this.subaccountsService.createSubAccount(userId, exchange, apiKey, apiSecret, name);
+      // Incluir isDemo si está presente en la solicitud
+      const demoStatus = isDemo !== undefined ? isDemo : false;
+      console.log(`🔹 Creando subcuenta con isDemo=${demoStatus}`);
+      
+      const result = await this.subaccountsService.createSubAccount(
+        userId, 
+        exchange, 
+        apiKey, 
+        apiSecret, 
+        name
+      );
+      
+      console.log(`✅ Subcuenta creada exitosamente con ID: ${result.id}`);
+      return result;
     } catch (error) {
-      console.error('❌ Error al crear subcuenta:', error);
-      throw new HttpException('Error al crear subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
+      console.error('❌ Error detallado al crear subcuenta:', error);
+      
+      // Propagar el mensaje de error específico si está disponible
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      
+      throw new HttpException(
+        `Error al crear subcuenta: ${error.message || 'Error desconocido'}`, 
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
     }
   }
 

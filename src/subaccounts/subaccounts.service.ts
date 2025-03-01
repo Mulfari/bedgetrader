@@ -11,9 +11,19 @@ export class SubaccountsService {
   // ✅ Obtener subcuentas del usuario autenticado
   async getSubAccounts(userId: string) {
     try {
-      return await this.prisma.subAccount.findMany({ where: { userId } });
+      console.log(`🔍 Buscando subcuentas para el usuario con ID: ${userId}`);
+      const subAccounts = await this.prisma.subAccount.findMany({ 
+        where: { userId },
+        include: { user: true } // Incluir datos del usuario relacionado
+      });
+      console.log(`✅ Se encontraron ${subAccounts.length} subcuentas`);
+      return subAccounts;
     } catch (error) {
-      throw new HttpException('Error al obtener subcuentas', HttpStatus.INTERNAL_SERVER_ERROR);
+      console.error('❌ Error detallado al obtener subcuentas:', error);
+      throw new HttpException(
+        `Error al obtener subcuentas: ${error.message || 'Error desconocido'}`, 
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
     }
   }
 
@@ -100,11 +110,49 @@ export class SubaccountsService {
   // ✅ Crear una nueva subcuenta
   async createSubAccount(userId: string, exchange: string, apiKey: string, apiSecret: string, name: string) {
     try {
-      return await this.prisma.subAccount.create({
-        data: { userId, exchange, apiKey, apiSecret, name },
+      console.log(`🔹 Creando subcuenta para usuario: ${userId}`);
+      console.log(`🔹 Datos: exchange=${exchange}, name=${name}, apiKey=${apiKey.substring(0, 5)}...`);
+      
+      // Verificar que el usuario existe antes de crear la subcuenta
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId }
       });
+      
+      if (!user) {
+        console.error(`❌ Usuario con ID ${userId} no encontrado`);
+        throw new HttpException('Usuario no encontrado', HttpStatus.NOT_FOUND);
+      }
+      
+      const newSubAccount = await this.prisma.subAccount.create({
+        data: { 
+          userId, 
+          exchange, 
+          apiKey, 
+          apiSecret, 
+          name,
+          isDemo: true // Establecer valor por defecto
+        },
+        include: { user: true } // Incluir datos del usuario relacionado
+      });
+      
+      console.log(`✅ Subcuenta creada con éxito: ${newSubAccount.id}`);
+      return newSubAccount;
     } catch (error) {
-      throw new HttpException('Error al crear subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
+      console.error('❌ Error detallado al crear subcuenta:', error);
+      
+      // Manejar errores específicos de Prisma
+      if (error.code) {
+        console.error(`❌ Código de error Prisma: ${error.code}`);
+        
+        if (error.code === 'P2003') {
+          throw new HttpException('Error de clave foránea: el usuario no existe', HttpStatus.BAD_REQUEST);
+        }
+      }
+      
+      throw new HttpException(
+        `Error al crear subcuenta: ${error.message || 'Error desconocido'}`, 
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
     }
   }
 
