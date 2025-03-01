@@ -6,7 +6,16 @@ import * as crypto from 'crypto';
 
 @Injectable()
 export class AccountDetailsService {
+  private readonly BYBIT_API_URLS = {
+    Bybit: 'https://api.bybit.com',     // URL para cuentas reales
+    BybitDemo: 'https://api-testnet.bybit.com'  // URL para cuentas demo
+  };
+
   constructor(private prisma: PrismaService) {}
+
+  private getApiUrl(exchange: string): string {
+    return this.BYBIT_API_URLS[exchange] || this.BYBIT_API_URLS.Bybit;
+  }
 
   // ✅ Obtener el balance de una subcuenta en Bybit
   async getAccountBalance(subAccountId: string, userId: string) {
@@ -61,10 +70,11 @@ export class AccountDetailsService {
         'X-BAPI-SIGN': signature,
       };
 
-      // 🔹 URL de Bybit para obtener el balance
-      const url = `https://api.bybit.com/v5/account/wallet-balance`;
+      // 🔹 URL de Bybit para obtener el balance (usando la URL correcta según el tipo de cuenta)
+      const baseUrl = this.getApiUrl(account.exchange);
+      const url = `${baseUrl}/v5/account/wallet-balance`;
 
-      console.log("📡 Enviando solicitud a Bybit...");
+      console.log(`📡 Enviando solicitud a ${account.exchange === 'BybitDemo' ? 'Bybit Demo' : 'Bybit Real'}...`);
 
       // 🔹 Hacer la solicitud a Bybit con tiempo de espera
       const axiosConfig = {
@@ -76,16 +86,16 @@ export class AccountDetailsService {
 
       const response = await axios.get(url, axiosConfig);
 
-      console.log(`📡 Respuesta de Bybit para subAccountId ${subAccountId}:`, JSON.stringify(response.data, null, 2));
+      console.log(`📡 Respuesta de ${account.exchange} para subAccountId ${subAccountId}:`, JSON.stringify(response.data, null, 2));
 
       if (!response.data || response.data.retCode !== 0) {
-        console.error(`❌ Error en Bybit: ${response.data.retMsg} (Código: ${response.data.retCode})`);
+        console.error(`❌ Error en ${account.exchange}: ${response.data.retMsg} (Código: ${response.data.retCode})`);
 
         if (response.data.retCode === 10003) {
           throw new HttpException('❌ API Key inválida o sin permisos', HttpStatus.FORBIDDEN);
         }
 
-        throw new HttpException(`Error en Bybit: ${response.data.retMsg}`, HttpStatus.BAD_REQUEST);
+        throw new HttpException(`Error en ${account.exchange}: ${response.data.retMsg}`, HttpStatus.BAD_REQUEST);
       }
 
       // 🔹 Enviar la respuesta completa de Bybit al frontend
@@ -140,8 +150,11 @@ export class AccountDetailsService {
         'X-BAPI-SIGN': signature,
       };
 
-      // URL para obtener las operaciones
-      const url = `https://api.bybit.com/v5/position/list?${queryString}`;
+      // URL para obtener las operaciones (usando la URL correcta según el tipo de cuenta)
+      const baseUrl = this.getApiUrl(account.exchange);
+      const url = `${baseUrl}/v5/position/list?${queryString}`;
+
+      console.log(`📡 Enviando solicitud a ${account.exchange === 'BybitDemo' ? 'Bybit Demo' : 'Bybit Real'}...`);
 
       const response = await axios.get(url, {
         headers,
@@ -150,8 +163,8 @@ export class AccountDetailsService {
       });
 
       if (!response.data || response.data.retCode !== 0) {
-        console.error(`❌ Error en Bybit: ${response.data.retMsg} (Código: ${response.data.retCode})`);
-        throw new HttpException(`Error en Bybit: ${response.data.retMsg}`, HttpStatus.BAD_REQUEST);
+        console.error(`❌ Error en ${account.exchange}: ${response.data.retMsg} (Código: ${response.data.retCode})`);
+        throw new HttpException(`Error en ${account.exchange}: ${response.data.retMsg}`, HttpStatus.BAD_REQUEST);
       }
 
       // Transformar los datos al formato que espera el frontend
