@@ -16,14 +16,14 @@ model User {
   subAccounts SubAccount[] // Relación con subcuentas
 }
 
-   model SubAccount {
-     id        String   @id @default(uuid())
-     userId    String
-     user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-     exchange  String
-     apiKey    String
-     apiSecret String
-     name      String
-     isDemo    Boolean  @default(false)
-     createdAt DateTime @default(now())
-   }
+model SubAccount {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exchange  String
+  apiKey    String
+  apiSecret String
+  name      String
+  isDemo    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
