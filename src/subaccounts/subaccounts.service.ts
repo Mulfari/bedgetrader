@@ -92,79 +92,154 @@ export class SubaccountsService {
       // Endpoint para obtener el balance de la wallet
       const endpoint = '/v5/account/wallet-balance';
       
-      // Parámetros de consulta
-      const accountType = 'UNIFIED';
+      // Según el mensaje de error, Bybit espera una cadena con este formato:
+      // timestamp + apiKey + recvWindow + accountType=UNIFIED
+      // Vamos a probar con el formato exacto que muestra el mensaje de error
+      const stringToSign = `${timestamp}${apiKey}${recvWindow}accountType=UNIFIED`;
       
-      // Generar firma para la API de Bybit
-      // IMPORTANTE: La firma debe generarse con los parámetros en orden alfabético
-      // Según la documentación de Bybit: https://bybit-exchange.github.io/docs/v5/intro
+      console.log(`🔹 Cadena para firma (formato 1): ${stringToSign.replace(apiKey, apiKey.substring(0, 5) + '...')}`);
       
-      // 1. Crear un objeto con todos los parámetros
-      const params = {
-        accountType,
-        api_key: apiKey,
-        recv_window: recvWindow,
-        timestamp
-      };
-      
-      // 2. Ordenar los parámetros alfabéticamente y crear una cadena de consulta
-      const orderedParams = Object.keys(params)
-        .sort()
-        .reduce((result, key) => {
-          return `${result}${key}=${params[key]}&`;
-        }, '')
-        .slice(0, -1); // Eliminar el último '&'
-      
-      // 3. Generar la firma HMAC SHA256
+      // Generar la firma HMAC SHA256 con el primer formato
       const signature = crypto
         .createHmac('sha256', apiSecret)
-        .update(orderedParams)
+        .update(stringToSign)
         .digest('hex');
       
-      // 4. Construir la URL final con los parámetros
-      const url = `${baseUrl}${endpoint}?accountType=${accountType}`;
+      // También vamos a probar con el formato alternativo que podría estar esperando Bybit
+      // Algunos endpoints de Bybit esperan: timestamp + apiKey + recvWindow + queryString
+      const alternativeStringToSign = `${timestamp}${apiKey}${recvWindow}`;
+      
+      console.log(`🔹 Cadena alternativa para firma (formato 2): ${alternativeStringToSign.replace(apiKey, apiKey.substring(0, 5) + '...')}`);
+      
+      // Generar firma alternativa
+      const alternativeSignature = crypto
+        .createHmac('sha256', apiSecret)
+        .update(alternativeStringToSign)
+        .digest('hex');
+      
+      // Tercer formato según la documentación oficial de Bybit
+      // https://bybit-exchange.github.io/docs/v5/guide/authentication
+      const queryString = 'accountType=UNIFIED';
+      const thirdStringToSign = timestamp + apiKey + recvWindow + queryString;
+      
+      console.log(`🔹 Cadena para firma (formato 3 - oficial): ${thirdStringToSign.replace(apiKey, apiKey.substring(0, 5) + '...')}`);
+      
+      // Generar firma con el tercer formato
+      const thirdSignature = crypto
+        .createHmac('sha256', apiSecret)
+        .update(thirdStringToSign)
+        .digest('hex');
+      
+      // Cuarto formato basado en el mensaje de error recibido
+      // El mensaje de error muestra: origin_string[1740923945575FdQh47Y5LBttYApitz20000accountType=UNIFIED]
+      // Esto sugiere que la cadena debe ser: timestamp + apiKey + recvWindow + "accountType=UNIFIED"
+      // Sin espacios ni caracteres adicionales
+      const fourthStringToSign = `${timestamp}${apiKey}${recvWindow}accountType=UNIFIED`;
+      
+      console.log(`🔹 Cadena para firma (formato 4 - basado en error): ${fourthStringToSign.replace(apiKey, apiKey.substring(0, 5) + '...')}`);
+      
+      // Generar firma con el cuarto formato
+      const fourthSignature = crypto
+        .createHmac('sha256', apiSecret)
+        .update(fourthStringToSign)
+        .digest('hex');
+      
+      console.log(`🔹 Firma generada (formato 1): ${signature.substring(0, 10)}...`);
+      console.log(`🔹 Firma alternativa (formato 2): ${alternativeSignature.substring(0, 10)}...`);
+      console.log(`🔹 Firma oficial (formato 3): ${thirdSignature.substring(0, 10)}...`);
+      console.log(`🔹 Firma basada en error (formato 4): ${fourthSignature.substring(0, 10)}...`);
+      
+      // Construir la URL final con los parámetros
+      const url = `${baseUrl}${endpoint}?accountType=UNIFIED`;
       
       console.log(`🔹 URL de la API: ${url}`);
-      console.log(`🔹 Parámetros ordenados para firma: ${orderedParams.replace(apiKey, apiKey.substring(0, 5) + '...')}`);
-      console.log(`🔹 Firma generada: ${signature.substring(0, 10)}...`);
-
-      // Headers según la documentación de Bybit V5
-      const headers = {
-        'X-BAPI-API-KEY': apiKey,
-        'X-BAPI-TIMESTAMP': timestamp,
-        'X-BAPI-RECV-WINDOW': recvWindow,
-        'X-BAPI-SIGN': signature,
-        'Content-Type': 'application/json'
-      };
-
-      console.log(`🔹 Headers configurados: ${JSON.stringify({
-        'X-BAPI-API-KEY': `${apiKey.substring(0, 5)}...`,
-        'X-BAPI-TIMESTAMP': timestamp,
-        'X-BAPI-RECV-WINDOW': recvWindow,
-        'X-BAPI-SIGN': `${signature.substring(0, 5)}...`,
-      })}`);
 
       // Hacer la solicitud a Bybit
-      console.log(`🔹 Realizando solicitud a Bybit...`);
+      console.log(`🔹 Realizando solicitud a Bybit con múltiples formatos de firma...`);
       let response;
+      let usedSignatureFormat = 1; // Formato usado (1, 2, 3 o 4)
+      
       try {
         // Imprimir todos los detalles de la solicitud para depuración
         console.log(`🔹 Detalles completos de la solicitud:`);
         console.log(`🔹 URL: ${url}`);
-        console.log(`🔹 Headers: ${JSON.stringify({
-          'X-BAPI-API-KEY': `${apiKey.substring(0, 5)}...`,
-          'X-BAPI-TIMESTAMP': timestamp,
-          'X-BAPI-RECV-WINDOW': recvWindow,
-          'X-BAPI-SIGN': `${signature.substring(0, 10)}...`,
-          'Content-Type': 'application/json'
-        })}`);
         
-        // Realizar la solicitud
-        response = await axios.get(url, {
-          headers,
-          httpsAgent: proxyAgent,
-          timeout: 15000 // 15 segundos de timeout
-        });
+        // Función para intentar con diferentes firmas
+        const attemptRequest = async (signatureToUse, format = 1) => {
+          const currentHeaders = {
+            'X-BAPI-API-KEY': apiKey,
+            'X-BAPI-TIMESTAMP': timestamp,
+            'X-BAPI-RECV-WINDOW': recvWindow,
+            'X-BAPI-SIGN': signatureToUse,
+            'Content-Type': 'application/json'
+          };
+          
+          console.log(`🔹 Usando firma formato ${format}`);
+          console.log(`🔹 Headers: ${JSON.stringify({
+            'X-BAPI-API-KEY': `${apiKey.substring(0, 5)}...`,
+            'X-BAPI-TIMESTAMP': timestamp,
+            'X-BAPI-RECV-WINDOW': recvWindow,
+            'X-BAPI-SIGN': `${signatureToUse.substring(0, 10)}...`,
+            'Content-Type': 'application/json'
+          })}`);
+          
+          return await axios.get(url, {
+            headers: currentHeaders,
+            httpsAgent: proxyAgent,
+            timeout: 15000 // 15 segundos de timeout
+          });
+        };
+        
+        // Intentar con los cuatro formatos de firma
+        try {
+          // Primer intento con la firma principal (formato 1)
+          console.log(`🔹 Intentando con formato 1...`);
+          response = await attemptRequest(signature, 1);
+          usedSignatureFormat = 1;
+        } catch (firstAttemptError) {
+          // Si el primer intento falla con error de firma, intentar con la firma alternativa
+          if (firstAttemptError.response && 
+              firstAttemptError.response.data && 
+              firstAttemptError.response.data.retCode === 10004) {
+            
+            console.log(`⚠️ Formato 1 falló con error de firma. Intentando con formato 2...`);
+            try {
+              response = await attemptRequest(alternativeSignature, 2);
+              usedSignatureFormat = 2;
+            } catch (secondAttemptError) {
+              // Si el segundo intento también falla, intentar con el tercer formato
+              if (secondAttemptError.response && 
+                  secondAttemptError.response.data && 
+                  secondAttemptError.response.data.retCode === 10004) {
+                
+                console.log(`⚠️ Formato 2 falló con error de firma. Intentando con formato 3 (oficial)...`);
+                try {
+                  response = await attemptRequest(thirdSignature, 3);
+                  usedSignatureFormat = 3;
+                } catch (thirdAttemptError) {
+                  // Si el tercer intento también falla, intentar con el cuarto formato
+                  if (thirdAttemptError.response && 
+                      thirdAttemptError.response.data && 
+                      thirdAttemptError.response.data.retCode === 10004) {
+                    
+                    console.log(`⚠️ Formato 3 falló con error de firma. Intentando con formato 4 (basado en error)...`);
+                    response = await attemptRequest(fourthSignature, 4);
+                    usedSignatureFormat = 4;
+                  } else {
+                    // Si no es un error de firma, propagar el error del tercer intento
+                    throw thirdAttemptError;
+                  }
+                }
+              } else {
+                // Si no es un error de firma, propagar el error del segundo intento
+                throw secondAttemptError;
+              }
+            }
+          } else {
+            // Si no es un error de firma, propagar el error original
+            throw firstAttemptError;
+          }
+        }
 
         console.log(`✅ Respuesta de Bybit recibida con código: ${response.status}`);
         
@@ -201,8 +276,29 @@ export class SubaccountsService {
                 HttpStatus.UNAUTHORIZED
               );
             case 10004:
+              // Error de firma - añadir más información para depuración
+              console.error(`❌ Error de firma detectado. Detalles del error:`);
+              console.error(`❌ Mensaje de error completo: ${response.data.retMsg}`);
+              console.error(`❌ Cadena de firma utilizada: ${usedSignatureFormat === 1 ? stringToSign : usedSignatureFormat === 2 ? alternativeStringToSign : usedSignatureFormat === 3 ? thirdStringToSign : fourthStringToSign}`);
+              console.error(`❌ Firma utilizada: ${usedSignatureFormat === 1 ? signature : usedSignatureFormat === 2 ? alternativeSignature : usedSignatureFormat === 3 ? thirdSignature : fourthSignature}`);
+              
+              // Extraer la cadena original del mensaje de error si está disponible
+              const errorMsgMatch = response.data.retMsg.match(/origin_string\[(.*?)\]/);
+              if (errorMsgMatch && errorMsgMatch[1]) {
+                const expectedString = errorMsgMatch[1];
+                console.error(`❌ Cadena esperada por Bybit: ${expectedString.replace(apiKey, apiKey.substring(0, 5) + '...')}`);
+                
+                // Intentar generar una firma con la cadena exacta que espera Bybit
+                const correctSignature = crypto
+                  .createHmac('sha256', apiSecret)
+                  .update(expectedString)
+                  .digest('hex');
+                
+                console.error(`❌ Firma que debería funcionar: ${correctSignature.substring(0, 10)}...`);
+              }
+              
               throw new HttpException(
-                `Firma inválida en la solicitud a Bybit`, 
+                `Firma inválida en la solicitud a Bybit. Por favor, verifique las credenciales API y el formato de la firma.`, 
                 HttpStatus.BAD_REQUEST
               );
             case 10016:
