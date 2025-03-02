@@ -120,15 +120,12 @@ export class SubaccountsService {
       const endpoint = '/v5/account/wallet-balance';
       
       // Parámetros específicos según el tipo de cuenta
-      // Para cuentas demo, usamos UNIFIED
-      // Para cuentas reales, probamos con SPOT si UNIFIED falla
-      const accountTypes = isDemo 
-        ? ['UNIFIED'] 
-        : ['UNIFIED', 'SPOT', 'CONTRACT']; // Probar diferentes tipos para cuentas reales
+      // Tanto para cuentas demo como reales, usamos solo UNIFIED
+      const accountTypes = ['UNIFIED'];
       
       console.log(`🔹 Tipos de cuenta a probar: ${accountTypes.join(', ')}`);
       
-      // Intentar con cada tipo de cuenta para cuentas reales
+      // Intentar con el tipo de cuenta UNIFIED
       let lastError: Error | null = null;
       
       for (const accountType of accountTypes) {
@@ -297,7 +294,7 @@ export class SubaccountsService {
             
             // Si es un error de tipo de cuenta no válido, probar con el siguiente tipo
             if (response.data.retCode === 10001 || response.data.retCode === 10002 || response.data.retCode === 10016) {
-              console.log(`⚠️ Tipo de cuenta ${accountType} no válido para esta API key. Probando con el siguiente tipo...`);
+              console.log(`⚠️ Tipo de cuenta ${accountType} no válido para esta API key.`);
               lastError = new Error(`Tipo de cuenta ${accountType} no válido: ${response.data.retMsg}`);
               continue;
             }
