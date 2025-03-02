@@ -76,10 +76,25 @@ export class SubaccountsController {
   async getSubAccountBalance(@Req() req, @Param('id') id: string) {
     try {
       const userId = req.user.sub;
-      return await this.subaccountsService.getSubAccountBalance(id, userId);
+      console.log(`🔹 Solicitud de balance para subcuenta: ${id}, usuario: ${userId}`);
+      
+      const result = await this.subaccountsService.getSubAccountBalance(id, userId);
+      console.log(`✅ Balance obtenido correctamente para subcuenta: ${id}`);
+      
+      return result;
     } catch (error) {
       console.error('❌ Error obteniendo balance:', error);
-      throw new HttpException('Error al obtener balance', HttpStatus.INTERNAL_SERVER_ERROR);
+      
+      // Si es un HttpException, mantener el status code original
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      
+      // Para otros errores, devolver un 500 con mensaje genérico
+      throw new HttpException(
+        'Error al obtener balance. Por favor, inténtelo de nuevo más tarde.', 
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
     }
   }
 
