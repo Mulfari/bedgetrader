@@ -115,7 +115,17 @@ export class SubaccountsController {
         console.log(`✅ Balance obtenido correctamente para subcuenta: ${id}`);
       }
       
-      return balance;
+      // Asegurarse de que el balance tiene el formato correcto
+      const formattedBalance = {
+        balance: balance.balance || 0,
+        assets: Array.isArray(balance.assets) ? balance.assets : [],
+        performance: balance.performance || 0,
+        isSimulated: !!balance.isSimulated,
+        isDebug: !!balance.isDebug
+      };
+      
+      console.log(`🔹 Devolviendo balance formateado:`, JSON.stringify(formattedBalance));
+      return formattedBalance;
     } catch (error) {
       console.error(`❌ Error obteniendo balance para subcuenta ${id}:`, error.message);
       
@@ -133,6 +143,13 @@ export class SubaccountsController {
           statusCode: HttpStatus.BAD_REQUEST,
           error: 'Error de configuración',
           details: 'La API key proporcionada no tiene acceso al tipo de cuenta UNIFIED.'
+        }, HttpStatus.BAD_REQUEST);
+      } else if (error.message && (error.message.includes('CloudFront') || error.message.includes('ubicación geográfica'))) {
+        throw new HttpException({
+          message: 'La API de Bybit no está disponible en tu ubicación geográfica',
+          statusCode: HttpStatus.BAD_REQUEST,
+          error: 'Restricción geográfica',
+          details: 'Considera usar una VPN o contactar con soporte.'
         }, HttpStatus.BAD_REQUEST);
       } else {
         // Para otros errores, usar el mensaje y estado originales
