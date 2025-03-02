@@ -91,17 +91,42 @@ export class SubaccountsService {
       
       // Endpoint para obtener el balance de la wallet
       const endpoint = '/v5/account/wallet-balance';
-      const queryString = 'accountType=UNIFIED';
-      const url = `${baseUrl}${endpoint}?${queryString}`;
+      
+      // Parámetros de consulta
+      const accountType = 'UNIFIED';
+      
+      // Generar firma para la API de Bybit
+      // IMPORTANTE: La firma debe generarse con los parámetros en orden alfabético
+      // Según la documentación de Bybit: https://bybit-exchange.github.io/docs/v5/intro
+      
+      // 1. Crear un objeto con todos los parámetros
+      const params = {
+        accountType,
+        api_key: apiKey,
+        recv_window: recvWindow,
+        timestamp
+      };
+      
+      // 2. Ordenar los parámetros alfabéticamente y crear una cadena de consulta
+      const orderedParams = Object.keys(params)
+        .sort()
+        .reduce((result, key) => {
+          return `${result}${key}=${params[key]}&`;
+        }, '')
+        .slice(0, -1); // Eliminar el último '&'
+      
+      // 3. Generar la firma HMAC SHA256
+      const signature = crypto
+        .createHmac('sha256', apiSecret)
+        .update(orderedParams)
+        .digest('hex');
+      
+      // 4. Construir la URL final con los parámetros
+      const url = `${baseUrl}${endpoint}?accountType=${accountType}`;
       
       console.log(`🔹 URL de la API: ${url}`);
-
-      // Ordenar los parámetros correctamente para la firma
-      // Nota: Los parámetros deben estar en orden alfabético según la documentación de Bybit
-      const signParams = `accountType=UNIFIED&api_key=${apiKey}&recv_window=${recvWindow}&timestamp=${timestamp}`;
-      const signature = crypto.createHmac('sha256', apiSecret).update(signParams).digest('hex');
-
-      console.log(`🔹 Parámetros para firma: ${signParams.replace(apiKey, apiKey.substring(0, 5) + '...')}`);
+      console.log(`🔹 Parámetros ordenados para firma: ${orderedParams.replace(apiKey, apiKey.substring(0, 5) + '...')}`);
+      console.log(`🔹 Firma generada: ${signature.substring(0, 10)}...`);
 
       // Headers según la documentación de Bybit V5
       const headers = {
@@ -123,6 +148,18 @@ export class SubaccountsService {
       console.log(`🔹 Realizando solicitud a Bybit...`);
       let response;
       try {
+        // Imprimir todos los detalles de la solicitud para depuración
+        console.log(`🔹 Detalles completos de la solicitud:`);
+        console.log(`🔹 URL: ${url}`);
+        console.log(`🔹 Headers: ${JSON.stringify({
+          'X-BAPI-API-KEY': `${apiKey.substring(0, 5)}...`,
+          'X-BAPI-TIMESTAMP': timestamp,
+          'X-BAPI-RECV-WINDOW': recvWindow,
+          'X-BAPI-SIGN': `${signature.substring(0, 10)}...`,
+          'Content-Type': 'application/json'
+        })}`);
+        
+        // Realizar la solicitud
         response = await axios.get(url, {
           headers,
           httpsAgent: proxyAgent,
@@ -130,7 +167,6 @@ export class SubaccountsService {
         });
 
         console.log(`✅ Respuesta de Bybit recibida con código: ${response.status}`);
-        console.log(`✅ Respuesta completa: ${JSON.stringify(response.data).substring(0, 1000)}...`);
         
         // Verificar si la respuesta es válida
         if (!response.data) {
@@ -141,35 +177,54 @@ export class SubaccountsService {
           );
         }
         
+        // Imprimir la respuesta completa para depuración
+        console.log(`✅ Respuesta completa: ${JSON.stringify(response.data)}`);
+        
         if (response.data.retCode !== 0) {
           console.error(`❌ Error en respuesta de Bybit: Código ${response.data.retCode}, Mensaje: ${response.data.retMsg}`);
           
           // Manejar códigos de error específicos de Bybit
-          if (response.data.retCode === 10001) {
-            throw new HttpException(
-              `Error de autenticación en Bybit: Verifique sus credenciales API`, 
-              HttpStatus.UNAUTHORIZED
-            );
-          } else if (response.data.retCode === 10003) {
-            throw new HttpException(
-              `API Key inválida o expirada`, 
-              HttpStatus.UNAUTHORIZED
-            );
-          } else if (response.data.retCode === 10004) {
-            throw new HttpException(
-              `Firma inválida en la solicitud a Bybit`, 
-              HttpStatus.BAD_REQUEST
-            );
-          } else if (response.data.retCode === 10016) {
-            throw new HttpException(
-              `Servicio no disponible para este tipo de cuenta`, 
-              HttpStatus.BAD_REQUEST
-            );
-          } else {
-            throw new HttpException(
-              `Error al obtener balance de Bybit: ${response.data.retMsg || 'Error desconocido'} (Código: ${response.data.retCode})`, 
-              HttpStatus.BAD_REQUEST
-            );
+          switch (response.data.retCode) {
+            case 10001:
+              throw new HttpException(
+                `Error de autenticación en Bybit: Verifique sus credenciales API`, 
+                HttpStatus.UNAUTHORIZED
+              );
+            case 10002:
+              throw new HttpException(
+                `Parámetros inválidos en la solicitud a Bybit`, 
+                HttpStatus.BAD_REQUEST
+              );
+            case 10003:
+              throw new HttpException(
+                `API Key inválida o expirada`, 
+                HttpStatus.UNAUTHORIZED
+              );
+            case 10004:
+              throw new HttpException(
+                `Firma inválida en la solicitud a Bybit`, 
+                HttpStatus.BAD_REQUEST
+              );
+            case 10016:
+              throw new HttpException(
+                `Servicio no disponible para este tipo de cuenta`, 
+                HttpStatus.BAD_REQUEST
+              );
+            case 10018:
+              throw new HttpException(
+                `IP no permitida para esta API Key`, 
+                HttpStatus.FORBIDDEN
+              );
+            case 110001:
+              throw new HttpException(
+                `Permiso denegado para esta operación`, 
+                HttpStatus.FORBIDDEN
+              );
+            default:
+              throw new HttpException(
+                `Error al obtener balance de Bybit: ${response.data.retMsg || 'Error desconocido'} (Código: ${response.data.retCode})`, 
+                HttpStatus.BAD_REQUEST
+              );
           }
         }
 
@@ -184,17 +239,50 @@ export class SubaccountsService {
         }
 
         // Extraer todos los assets
-        const assets = response.data.result.list
-          .flatMap((wallet: any) => wallet.coin || [])
-          .map((coin: any) => ({
-            coin: coin.coin,
-            walletBalance: parseFloat(coin.walletBalance) || 0,
-            usdValue: parseFloat(coin.usdValue) || 0
-          }))
-          .filter((asset: any) => asset.walletBalance > 0);
-
-        // Calcular balance total sumando todos los valores en USD
-        const totalBalance = assets.reduce((sum: number, asset: any) => sum + asset.usdValue, 0);
+        let assets: Array<{coin: string; walletBalance: number; usdValue: number}> = [];
+        let totalBalance = 0;
+        
+        try {
+          // Iterar sobre cada wallet en la lista
+          for (const wallet of response.data.result.list) {
+            console.log(`🔹 Procesando wallet: ${JSON.stringify(wallet)}`);
+            
+            // Verificar si hay monedas en esta wallet
+            if (wallet.coin && Array.isArray(wallet.coin)) {
+              // Procesar cada moneda
+              for (const coin of wallet.coin) {
+                if (coin && coin.coin && coin.walletBalance && parseFloat(coin.walletBalance) > 0) {
+                  const walletBalance = parseFloat(coin.walletBalance);
+                  const usdValue = parseFloat(coin.usdValue || '0');
+                  
+                  assets.push({
+                    coin: coin.coin,
+                    walletBalance: walletBalance,
+                    usdValue: usdValue
+                  });
+                  
+                  // Sumar al balance total
+                  totalBalance += usdValue;
+                }
+              }
+            }
+          }
+          
+          console.log(`✅ Assets extraídos: ${assets.length}`);
+          console.log(`✅ Balance total calculado: ${totalBalance.toFixed(2)}`);
+          
+          // Si no se encontraron assets, mostrar advertencia
+          if (assets.length === 0) {
+            console.warn(`⚠️ No se encontraron assets con balance positivo en la respuesta de Bybit`);
+          }
+        } catch (parseError) {
+          console.error(`❌ Error al procesar los assets: ${parseError.message}`);
+          console.error(`❌ Datos que causaron el error: ${JSON.stringify(response.data.result.list)}`);
+          throw new HttpException(
+            `Error al procesar los datos de Bybit: ${parseError.message}`, 
+            HttpStatus.INTERNAL_SERVER_ERROR
+          );
+        }
 
         // Calcular rendimiento simulado (en un sistema real, esto vendría de datos históricos)
         // Nota: En una implementación completa, este valor debería venir de datos históricos reales
