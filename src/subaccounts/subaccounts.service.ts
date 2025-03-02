@@ -377,27 +377,36 @@ export class SubaccountsService {
       // Si llegamos aquí, ningún tipo de cuenta funcionó
       console.error(`❌ Todos los tipos de cuenta fallaron. Último error: ${lastError?.message}`);
       
-      // Generar datos simulados como fallback
-      console.warn(`⚠️ Usando datos simulados debido a problemas con la API de Bybit`);
-      
-      // Datos simulados para desarrollo/pruebas
-      const simulatedAssets = [
-        { coin: 'USDT', walletBalance: 1000.0, usdValue: 1000.0 },
-        { coin: 'BTC', walletBalance: 0.05, usdValue: 3000.0 },
-        { coin: 'ETH', walletBalance: 1.5, usdValue: 4500.0 }
-      ];
-      
-      const simulatedBalance = simulatedAssets.reduce((sum, asset) => sum + asset.usdValue, 0);
-      const simulatedPerformance = Math.random() * 20 - 10; // Entre -10% y +10%
-      
-      console.log(`✅ Datos simulados generados: Balance ${simulatedBalance.toFixed(2)}, ${simulatedAssets.length} activos`);
-      
-      return {
-        balance: simulatedBalance,
-        assets: simulatedAssets,
-        performance: simulatedPerformance,
-        isSimulated: true // Indicar que son datos simulados
-      };
+      // Solo usar datos simulados para cuentas demo, no para cuentas reales
+      if (isDemo) {
+        console.warn(`⚠️ Usando datos simulados para cuenta DEMO debido a problemas con la API de Bybit`);
+        
+        // Datos simulados para desarrollo/pruebas
+        const simulatedAssets = [
+          { coin: 'USDT', walletBalance: 1000.0, usdValue: 1000.0 },
+          { coin: 'BTC', walletBalance: 0.05, usdValue: 3000.0 },
+          { coin: 'ETH', walletBalance: 1.5, usdValue: 4500.0 }
+        ];
+        
+        const simulatedBalance = simulatedAssets.reduce((sum, asset) => sum + asset.usdValue, 0);
+        const simulatedPerformance = Math.random() * 20 - 10; // Entre -10% y +10%
+        
+        console.log(`✅ Datos simulados generados: Balance ${simulatedBalance.toFixed(2)}, ${simulatedAssets.length} activos`);
+        
+        return {
+          balance: simulatedBalance,
+          assets: simulatedAssets,
+          performance: simulatedPerformance,
+          isSimulated: true // Indicar que son datos simulados
+        };
+      } else {
+        // Para cuentas reales, lanzar un error claro en lugar de usar datos simulados
+        console.error(`❌ No se pudo obtener el balance real para la cuenta de Bybit`);
+        throw new HttpException(
+          'No se pudo obtener el balance real de la cuenta. Por favor verifica tus credenciales de API y que la cuenta tenga permisos de lectura.',
+          HttpStatus.BAD_REQUEST
+        );
+      }
     } catch (error) {
       console.error('❌ Error en getSubAccountBalance:', error.message);
       

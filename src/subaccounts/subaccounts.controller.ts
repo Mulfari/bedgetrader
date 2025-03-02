@@ -119,16 +119,28 @@ export class SubaccountsController {
     } catch (error) {
       console.error(`❌ Error obteniendo balance para subcuenta ${id}:`, error.message);
       
-      // Si es un error específico de HTTP, propagarlo
-      if (error instanceof HttpException) {
-        throw error;
+      // Proporcionar mensajes de error más descriptivos según el tipo de error
+      if (error.message && error.message.includes('No se pudo obtener el balance real')) {
+        throw new HttpException({
+          message: error.message,
+          statusCode: HttpStatus.BAD_REQUEST,
+          error: 'Error de API de Bybit',
+          details: 'Verifica que las credenciales de API sean correctas y tengan permisos de lectura.'
+        }, HttpStatus.BAD_REQUEST);
+      } else if (error.message && error.message.includes('Tipo de cuenta')) {
+        throw new HttpException({
+          message: 'Tipo de cuenta no válido para esta API key',
+          statusCode: HttpStatus.BAD_REQUEST,
+          error: 'Error de configuración',
+          details: 'La API key proporcionada no tiene acceso al tipo de cuenta UNIFIED.'
+        }, HttpStatus.BAD_REQUEST);
+      } else {
+        // Para otros errores, usar el mensaje y estado originales
+        throw new HttpException(
+          error.message || 'Error al obtener balance',
+          error.status || HttpStatus.INTERNAL_SERVER_ERROR
+        );
       }
-      
-      // Para otros errores, crear un HttpException con el mensaje adecuado
-      throw new HttpException(
-        `Error al obtener balance: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
     }
   }
 
