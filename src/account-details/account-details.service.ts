@@ -81,25 +81,11 @@ export class AccountDetailsService {
       if (!response.data || response.data.retCode !== 0) {
         console.error(`❌ Error en Bybit: ${response.data.retMsg} (Código: ${response.data.retCode})`);
 
-        // Manejar diferentes tipos de errores de Bybit con mensajes más claros
-        switch (response.data.retCode) {
-          case 10001:
-            throw new HttpException('❌ Parámetros incorrectos en la solicitud a Bybit', HttpStatus.BAD_REQUEST);
-          case 10002:
-            throw new HttpException('❌ API Key inválida', HttpStatus.FORBIDDEN);
-          case 10003:
-            throw new HttpException('❌ IP no autorizada para usar esta API Key', HttpStatus.FORBIDDEN);
-          case 10004:
-            throw new HttpException('❌ La API Key no tiene permisos suficientes', HttpStatus.FORBIDDEN);
-          case 10005:
-            throw new HttpException('❌ Timestamp de la solicitud demasiado antiguo', HttpStatus.BAD_REQUEST);
-          case 10006:
-            throw new HttpException('❌ Firma inválida en la solicitud', HttpStatus.BAD_REQUEST);
-          case 10016:
-            throw new HttpException('❌ Tipo de cuenta UNIFIED no válido para esta API Key', HttpStatus.BAD_REQUEST);
-          default:
-            throw new HttpException(`❌ Error en Bybit: ${response.data.retMsg}`, HttpStatus.BAD_REQUEST);
+        if (response.data.retCode === 10003) {
+          throw new HttpException('❌ API Key inválida o sin permisos', HttpStatus.FORBIDDEN);
         }
+
+        throw new HttpException(`Error en Bybit: ${response.data.retMsg}`, HttpStatus.BAD_REQUEST);
       }
 
       // 🔹 Enviar la respuesta completa de Bybit al frontend

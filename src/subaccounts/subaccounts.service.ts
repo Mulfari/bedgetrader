@@ -146,8 +146,8 @@ export class SubaccountsService {
       // 🔹 URL de Bybit para obtener el balance
       // Usar la URL correcta según si es una cuenta demo o real
       const baseUrl = subaccount.isDemo 
-        ? "https://api-demo.bybit.com" // URL para cuentas demo (CORREGIDO)
-        : "https://api.bybit.com";     // URL para cuentas reales
+        ? "https://api-testnet.bybit.com" // URL para cuentas demo (testnet)
+        : "https://api.bybit.com";        // URL para cuentas reales
       
       const url = `${baseUrl}/v5/account/wallet-balance`;
       

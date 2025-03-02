@@ -13,6 +13,6 @@ import { PrismaModule } from "../prisma.module"; // ✅ Importar PrismaModule
     PrismaModule, // ✅ Importar PrismaModule para acceder a PrismaService
   ],
   controllers: [SubaccountsController],
-  providers: [SubaccountsService, JwtAuthGuard], // Quitar PrismaService de aquí
+  providers: [SubaccountsService, JwtAuthGuard],
 })
 export class SubaccountsModule {}
