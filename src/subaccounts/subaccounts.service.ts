@@ -49,14 +49,34 @@ export class SubaccountsService {
     try {
       console.log(`🔹 Obteniendo balance para subcuenta: ${subAccountId}, usuario: ${userId}`);
       
-      const subAccount = await this.prisma.subAccount.findUnique({
+      // Verificar que el ID de usuario no sea undefined
+      if (!userId) {
+        console.error('❌ Error: ID de usuario es undefined');
+        throw new HttpException('ID de usuario no proporcionado', HttpStatus.BAD_REQUEST);
+      }
+      
+      // Buscar la subcuenta con más detalles para depuración
+      console.log(`🔹 Buscando subcuenta con ID: ${subAccountId} para usuario: ${userId}`);
+      
+      // Primero, verificar si la subcuenta existe en absoluto
+      const subAccountExists = await this.prisma.subAccount.findUnique({
         where: { id: subAccountId },
       });
-
-      if (!subAccount || subAccount.userId !== userId) {
-        console.error(`❌ Subcuenta no encontrada o no pertenece al usuario: ${userId}`);
+      
+      if (!subAccountExists) {
+        console.error(`❌ Subcuenta con ID ${subAccountId} no existe en la base de datos`);
         throw new HttpException('Subcuenta no encontrada', HttpStatus.NOT_FOUND);
       }
+      
+      console.log(`🔹 Subcuenta encontrada en la base de datos. Propietario: ${subAccountExists.userId}`);
+      
+      // Ahora verificar si pertenece al usuario
+      if (subAccountExists.userId !== userId) {
+        console.error(`❌ La subcuenta pertenece al usuario ${subAccountExists.userId}, no al usuario ${userId}`);
+        throw new HttpException('No tienes permiso para acceder a esta subcuenta', HttpStatus.FORBIDDEN);
+      }
+      
+      const subAccount = subAccountExists;
 
       console.log(`🔹 Subcuenta encontrada: ${subAccount.name}, exchange: ${subAccount.exchange}`);
       
@@ -115,10 +135,21 @@ export class SubaccountsService {
         try {
           console.log(`🔹 Intentando con tipo de cuenta: ${accountType}`);
           
-          // Según el mensaje de error, Bybit espera una cadena con este formato:
-          // timestamp + apiKey + recvWindow + accountType=UNIFIED
-          const stringToSign = `${timestamp}${apiKey}${recvWindow}accountType=${accountType}`;
+          // Crear los parámetros de consulta
+          const params = new URLSearchParams();
+          params.append('accountType', accountType);
           
+          // Construir la URL con los parámetros
+          const url = `${baseUrl}${endpoint}?${params.toString()}`;
+          console.log(`🔹 URL de la API: ${url}`);
+          
+          // Según la documentación de Bybit, la cadena para firmar debe ser:
+          // timestamp + apiKey + recvWindow + queryString
+          // donde queryString son los parámetros en orden alfabético
+          const queryString = `accountType=${accountType}`;
+          const stringToSign = timestamp + apiKey + recvWindow + queryString;
+          
+          console.log(`🔹 Parámetros para firma: timestamp=${timestamp}, apiKey=${apiKey.substring(0, 5)}..., recvWindow=${recvWindow}, queryString=${queryString}`);
           console.log(`🔹 Cadena para firma: ${stringToSign.replace(apiKey, apiKey.substring(0, 5) + '...')}`);
           
           // Generar la firma HMAC SHA256
@@ -128,11 +159,6 @@ export class SubaccountsService {
             .digest('hex');
           
           console.log(`🔹 Firma generada: ${signature.substring(0, 10)}...`);
-          
-          // Construir la URL final con los parámetros
-          const url = `${baseUrl}${endpoint}?accountType=${accountType}`;
-          
-          console.log(`🔹 URL de la API: ${url}`);
           
           // Configuración para Axios
           const axiosConfig: any = {
@@ -171,11 +197,22 @@ export class SubaccountsService {
                 console.log(`🔄 Reintento ${retries}/${maxRetries} para la solicitud a Bybit...`);
               }
               
+              console.log(`🔹 Enviando solicitud a Bybit con headers:`, {
+                'X-BAPI-API-KEY': apiKey.substring(0, 5) + '...',
+                'X-BAPI-TIMESTAMP': timestamp,
+                'X-BAPI-RECV-WINDOW': recvWindow,
+                'X-BAPI-SIGN': signature.substring(0, 10) + '...',
+              });
+              
               const result = await axios.get(url, axiosConfig);
+              
+              console.log(`🔹 Respuesta recibida con status: ${result.status}`);
+              console.log(`🔹 Headers de respuesta: ${JSON.stringify(result.headers)}`);
               
               // Verificar si el código de estado es un error
               if (result.status >= 400) {
                 console.error(`❌ Error HTTP: ${result.status} - ${result.statusText}`);
+                console.error(`❌ Cuerpo de la respuesta: ${JSON.stringify(result.data)}`);
                 
                 // Si es un error 522 (Connection Timed Out), reintentar
                 if (result.status === 522 && retries < maxRetries) {
@@ -190,6 +227,18 @@ export class SubaccountsService {
               
               response = result;
             } catch (error) {
+              console.error(`❌ Error en la solicitud a Bybit:`, error.message);
+              
+              // Si es un error de Axios con respuesta, mostrar detalles
+              if (error.response) {
+                console.error(`❌ Status: ${error.response.status}`);
+                console.error(`❌ Datos: ${JSON.stringify(error.response.data)}`);
+                console.error(`❌ Headers: ${JSON.stringify(error.response.headers)}`);
+              } else if (error.request) {
+                // La solicitud fue hecha pero no se recibió respuesta
+                console.error(`❌ No se recibió respuesta: ${error.request}`);
+              }
+              
               // Si es un error de timeout o conexión y aún tenemos reintentos disponibles
               if ((error.code === 'ECONNABORTED' || error.message?.includes('timeout')) && retries < maxRetries) {
                 retries++;
@@ -218,6 +267,33 @@ export class SubaccountsService {
           
           if (response.data.retCode !== 0) {
             console.error(`❌ Error en respuesta de Bybit: Código ${response.data.retCode}, Mensaje: ${response.data.retMsg}`);
+            
+            // Manejar errores específicos de Bybit
+            switch (response.data.retCode) {
+              case 10001:
+                console.error('❌ Error de parámetro: Parámetros incorrectos');
+                break;
+              case 10002:
+                console.error('❌ Error de autenticación: API key inválida');
+                break;
+              case 10003:
+                console.error('❌ Error de IP: IP no está en la lista blanca');
+                break;
+              case 10004:
+                console.error('❌ Error de permisos: La API key no tiene permisos suficientes');
+                break;
+              case 10005:
+                console.error('❌ Error de timestamp: Timestamp demasiado antiguo');
+                break;
+              case 10006:
+                console.error('❌ Error de firma: Firma inválida');
+                break;
+              case 10016:
+                console.error('❌ Error de tipo de cuenta: Tipo de cuenta no válido para esta API key');
+                break;
+              default:
+                console.error(`❌ Error desconocido de Bybit: ${response.data.retMsg}`);
+            }
             
             // Si es un error de tipo de cuenta no válido, probar con el siguiente tipo
             if (response.data.retCode === 10001 || response.data.retCode === 10002 || response.data.retCode === 10016) {

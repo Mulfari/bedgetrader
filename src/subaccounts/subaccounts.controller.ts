@@ -27,6 +27,12 @@ export class SubaccountsController {
       const userId = req.user.sub;
       console.log(`🔹 Solicitud para obtener subcuentas del usuario: ${userId}`);
       
+      // Verificar que el ID de usuario no sea undefined
+      if (!userId) {
+        console.error('❌ Error: ID de usuario es undefined en el token JWT');
+        throw new HttpException('ID de usuario no disponible en el token', HttpStatus.UNAUTHORIZED);
+      }
+      
       const subAccounts = await this.subaccountsService.getSubAccounts(userId);
       console.log(`✅ Se encontraron ${subAccounts.length} subcuentas para el usuario ${userId}`);
       
@@ -64,6 +70,14 @@ export class SubaccountsController {
   async getSubAccountKeys(@Req() req, @Param('id') id: string) {
     try {
       const userId = req.user.sub;
+      console.log(`🔹 Solicitud de API keys para subcuenta: ${id}, usuario: ${userId}`);
+      
+      // Verificar que el ID de usuario no sea undefined
+      if (!userId) {
+        console.error('❌ Error: ID de usuario es undefined en el token JWT');
+        throw new HttpException('ID de usuario no disponible en el token', HttpStatus.UNAUTHORIZED);
+      }
+      
       return await this.subaccountsService.getSubAccountKeys(id, userId);
     } catch (error) {
       console.error('❌ Error obteniendo API keys:', error);
@@ -74,10 +88,22 @@ export class SubaccountsController {
   // ✅ Obtener el balance de una subcuenta desde Bybit
   @UseGuards(JwtAuthGuard)
   @Get(':id/balance')
-  async getSubAccountBalance(@Param('id') id: string, @Request() req) {
+  async getSubAccountBalance(@Param('id') id: string, @Req() req) {
     try {
       console.log(`🔹 Solicitud de balance para subcuenta: ${id}`);
-      const userId = req.user.id;
+      
+      // Depurar el objeto req.user completo
+      console.log('🔹 Objeto req.user completo:', JSON.stringify(req.user));
+      
+      // Extraer el ID de usuario del token JWT
+      const userId = req.user.sub;
+      console.log(`🔹 ID de usuario extraído del token: ${userId}`);
+      
+      // Verificar que el ID de usuario no sea undefined
+      if (!userId) {
+        console.error('❌ Error: ID de usuario es undefined en el token JWT');
+        throw new HttpException('ID de usuario no disponible en el token', HttpStatus.UNAUTHORIZED);
+      }
       
       // Intentar obtener el balance
       const balance = await this.subaccountsService.getSubAccountBalance(id, userId);
@@ -112,8 +138,14 @@ export class SubaccountsController {
   async createSubAccount(@Req() req, @Body() body) {
     const { exchange, apiKey, apiSecret, name, isDemo } = body;
     const userId = req.user.sub;
-
+    
     console.log(`🔹 Solicitud para crear subcuenta recibida para usuario: ${userId}`);
+    
+    // Verificar que el ID de usuario no sea undefined
+    if (!userId) {
+      console.error('❌ Error: ID de usuario es undefined en el token JWT');
+      throw new HttpException('ID de usuario no disponible en el token', HttpStatus.UNAUTHORIZED);
+    }
     
     // Validar campos obligatorios
     if (!exchange || !apiKey || !apiSecret || !name) {
@@ -158,6 +190,14 @@ export class SubaccountsController {
   async updateSubAccount(@Req() req, @Param('id') id: string, @Body() body) {
     const { exchange, apiKey, apiSecret, name } = body;
     const userId = req.user.sub;
+    
+    console.log(`🔹 Solicitud para actualizar subcuenta: ${id}, usuario: ${userId}`);
+    
+    // Verificar que el ID de usuario no sea undefined
+    if (!userId) {
+      console.error('❌ Error: ID de usuario es undefined en el token JWT');
+      throw new HttpException('ID de usuario no disponible en el token', HttpStatus.UNAUTHORIZED);
+    }
 
     if (!exchange || !apiKey || !apiSecret || !name) {
       throw new HttpException('Todos los campos son obligatorios', HttpStatus.BAD_REQUEST);
@@ -176,6 +216,14 @@ export class SubaccountsController {
   @Delete(':id')
   async deleteSubAccount(@Req() req, @Param('id') id: string) {
     const userId = req.user.sub;
+    
+    console.log(`🔹 Solicitud para eliminar subcuenta: ${id}, usuario: ${userId}`);
+    
+    // Verificar que el ID de usuario no sea undefined
+    if (!userId) {
+      console.error('❌ Error: ID de usuario es undefined en el token JWT');
+      throw new HttpException('ID de usuario no disponible en el token', HttpStatus.UNAUTHORIZED);
+    }
 
     try {
       return await this.subaccountsService.deleteSubAccount(id, userId);

@@ -19,6 +19,9 @@ export class JwtAuthGuard implements CanActivate {
     const token = authHeader.split(" ")[1];
 
     try {
+      console.log('🔹 Verificando token JWT en JwtAuthGuard');
+      console.log(`🔹 JWT_SECRET en JwtAuthGuard: ${process.env.JWT_SECRET?.substring(0, 10) || 'no definido'}`);
+
       const jwtSecret = process.env.JWT_SECRET;
       console.log("🔹 JWT_SECRET en JwtAuthGuard:", jwtSecret || "❌ NO DEFINIDO");
 
