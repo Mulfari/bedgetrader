@@ -105,6 +105,15 @@ export class SubaccountsController {
         throw new HttpException('ID de usuario no disponible en el token', HttpStatus.UNAUTHORIZED);
       }
       
+      // Obtener la subcuenta para verificar si es demo o real
+      const subaccount = await this.subaccountsService.findOne(id, userId);
+      if (!subaccount) {
+        console.error(`❌ Subcuenta ${id} no encontrada para usuario ${userId}`);
+        throw new HttpException('Subcuenta no encontrada', HttpStatus.NOT_FOUND);
+      }
+      
+      console.log(`🔹 Tipo de subcuenta: ${subaccount.isDemo ? 'DEMO' : 'REAL'}`);
+      
       // Intentar obtener el balance
       const balance = await this.subaccountsService.getSubAccountBalance(id, userId);
       
@@ -121,10 +130,19 @@ export class SubaccountsController {
         assets: Array.isArray(balance.assets) ? balance.assets : [],
         performance: balance.performance || 0,
         isSimulated: !!balance.isSimulated,
+        isDemo: !!balance.isDemo,
         isDebug: !!balance.isDebug
       };
       
-      console.log(`🔹 Devolviendo balance formateado:`, JSON.stringify(formattedBalance));
+      console.log(`🔹 Devolviendo balance formateado para subcuenta ${id}:`, 
+        JSON.stringify({
+          balance: formattedBalance.balance,
+          assetsCount: formattedBalance.assets.length,
+          isSimulated: formattedBalance.isSimulated,
+          isDemo: formattedBalance.isDemo
+        })
+      );
+      
       return formattedBalance;
     } catch (error) {
       console.error(`❌ Error obteniendo balance para subcuenta ${id}:`, error.message);

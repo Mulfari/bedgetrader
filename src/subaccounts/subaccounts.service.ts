@@ -91,9 +91,20 @@ export class SubaccountsService {
 
   // Método para obtener balance del exchange
   private async getExchangeBalance(subaccount: SubAccount): Promise<any> {
+    console.log(`🔍 Obteniendo balance para ${subaccount.exchange} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
+    
+    // Verificar que tenemos las credenciales necesarias
+    if (!subaccount.apiKey || !subaccount.apiSecret) {
+      console.error('❌ Faltan credenciales de API para la subcuenta');
+      throw new Error('Faltan credenciales de API para la subcuenta');
+    }
+    
+    // Por ahora solo soportamos Bybit
     if (subaccount.exchange.toLowerCase() === 'bybit') {
+      console.log(`🔍 Usando método específico para Bybit (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
       return this.getBybitBalance(subaccount);
     } else {
+      console.error(`❌ Exchange ${subaccount.exchange} no soportado`);
       throw new Error(`Exchange ${subaccount.exchange} no soportado`);
     }
   }
@@ -227,84 +238,80 @@ export class SubaccountsService {
         throw new HttpException('Subcuenta no encontrada', HttpStatus.NOT_FOUND);
       }
       
-      console.log(`✅ Subcuenta encontrada: ${JSON.stringify(subaccount)}`);
+      console.log(`✅ Subcuenta encontrada: ${JSON.stringify({
+        id: subaccount.id,
+        exchange: subaccount.exchange,
+        isDemo: subaccount.isDemo,
+        apiKey: subaccount.apiKey ? `${subaccount.apiKey.substring(0, 5)}...` : 'no-key'
+      })}`);
       
-      // Tanto para cuentas demo como reales, intentamos obtener el balance real de Bybit
+      // IMPORTANTE: Siempre intentamos obtener datos reales, tanto para cuentas demo como reales
+      console.log(`🔍 Obteniendo balance para cuenta ${id} en ${subaccount.exchange} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
+      
       try {
-        console.log(`🔍 Obteniendo balance para cuenta ${id} en ${subaccount.exchange} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
-        
         // Intentar obtener el balance real
-        try {
-          const balance = await this.getExchangeBalance(subaccount);
-          console.log(`✅ Balance obtenido correctamente: ${JSON.stringify(balance)}`);
-          
-          // Si es una cuenta demo, marcamos los datos como demo
-          if (subaccount.isDemo) {
-            balance.isDemo = true;
-          }
-          
-          return balance;
-        } catch (exchangeError) {
-          console.error(`❌ Error al obtener balance de ${subaccount.exchange}:`, exchangeError.message);
-          
-          // Si el error es de restricción geográfica, intentar con el proxy
-          if (exchangeError.message?.includes('ubicación geográfica') || 
-              exchangeError.message?.includes('CloudFront') || 
-              exchangeError.response?.status === 403) {
-            console.log('⚠️ Detectada restricción geográfica, intentando con proxy alternativo...');
-            
-            try {
-              console.log(`🔄 Llamando a getExchangeBalanceViaProxy para ${id}...`);
-              const balanceViaProxy = await this.getExchangeBalanceViaProxy(subaccount);
-              console.log(`✅ Balance obtenido vía proxy: ${JSON.stringify(balanceViaProxy)}`);
-              
-              // Si es una cuenta demo, marcamos los datos como demo
-              if (subaccount.isDemo) {
-                balanceViaProxy.isDemo = true;
-              }
-              
-              return balanceViaProxy;
-            } catch (proxyError) {
-              console.error('❌ Error al intentar con proxy:', proxyError.message);
-              
-              // Si es una cuenta demo y no se pudo obtener el balance real, generar datos simulados
-              if (subaccount.isDemo) {
-                console.log(`⚠️ Cuenta demo ${id}: Generando datos simulados como fallback.`);
-                return this.generateSimulatedData();
-              }
-              
-              // Para cuentas reales, lanzar el error
-              throw new HttpException(
-                'No se pudo obtener el balance real de la cuenta, incluso usando métodos alternativos. Por favor verifica tus credenciales de API.',
-                HttpStatus.BAD_REQUEST
-              );
-            }
-          }
-          
-          // Si es una cuenta demo y no se pudo obtener el balance real, generar datos simulados
-          if (subaccount.isDemo) {
-            console.log(`⚠️ Cuenta demo ${id}: Generando datos simulados como fallback.`);
-            return this.generateSimulatedData();
-          }
-          
-          // Para cuentas reales, lanzar el error
-          console.error(`❌ Error obteniendo balance para subcuenta ${id}:`, exchangeError.message);
-          throw new HttpException(
-            `No se pudo obtener el balance real de la cuenta. Por favor verifica tus credenciales de API y que la cuenta tenga permisos de lectura.`,
-            HttpStatus.BAD_REQUEST
-          );
-        }
-      } catch (error) {
-        console.error(`❌ Error general en getSubAccountBalance:`, error.message);
+        const balance = await this.getExchangeBalance(subaccount);
+        console.log(`✅ Balance obtenido correctamente para subcuenta: ${id}`);
         
-        // Si es una cuenta demo, generar datos simulados
+        // Si es una cuenta demo, marcamos los datos
         if (subaccount.isDemo) {
-          console.log(`⚠️ Cuenta demo ${id}: Generando datos simulados como fallback.`);
-          return this.generateSimulatedData();
+          balance.isDemo = true;
         }
         
-        // Para cuentas reales, propagar el error
-        throw error;
+        return balance;
+      } catch (exchangeError) {
+        console.error(`❌ Error al obtener balance de ${subaccount.exchange}:`, exchangeError.message);
+        
+        // Si el error es de restricción geográfica, intentar con el proxy
+        if (exchangeError.message?.includes('ubicación geográfica') || 
+            exchangeError.message?.includes('CloudFront') || 
+            exchangeError.response?.status === 403) {
+          console.log('⚠️ Detectada restricción geográfica, intentando con proxy alternativo...');
+          
+          try {
+            console.log(`🔄 Llamando a getExchangeBalanceViaProxy para ${id}...`);
+            const balanceViaProxy = await this.getExchangeBalanceViaProxy(subaccount);
+            console.log(`✅ Balance obtenido vía proxy para subcuenta: ${id}`);
+            
+            // Si es una cuenta demo, marcamos los datos
+            if (subaccount.isDemo) {
+              balanceViaProxy.isDemo = true;
+            }
+            
+            return balanceViaProxy;
+          } catch (proxyError) {
+            console.error('❌ Error al intentar con proxy:', proxyError.message);
+            
+            // Si es una cuenta demo y fallaron todos los intentos, generar datos simulados como último recurso
+            if (subaccount.isDemo) {
+              console.log(`⚠️ Cuenta demo ${id}: Generando datos simulados como último recurso.`);
+              const simulatedData = this.generateSimulatedData();
+              simulatedData.isDemo = true;
+              return simulatedData;
+            }
+            
+            // Para cuentas reales, lanzar el error
+            throw new HttpException(
+              'No se pudo obtener el balance real de la cuenta, incluso usando métodos alternativos. Por favor verifica tus credenciales de API.',
+              HttpStatus.BAD_REQUEST
+            );
+          }
+        }
+        
+        // Si es una cuenta demo y falló el intento principal, generar datos simulados como último recurso
+        if (subaccount.isDemo) {
+          console.log(`⚠️ Cuenta demo ${id}: Generando datos simulados como último recurso.`);
+          const simulatedData = this.generateSimulatedData();
+          simulatedData.isDemo = true;
+          return simulatedData;
+        }
+        
+        // Para cuentas reales, lanzar el error
+        console.error(`❌ Error obteniendo balance para subcuenta ${id}:`, exchangeError.message);
+        throw new HttpException(
+          `No se pudo obtener el balance real de la cuenta. Por favor verifica tus credenciales de API y que la cuenta tenga permisos de lectura.`,
+          HttpStatus.BAD_REQUEST
+        );
       }
     } catch (error) {
       console.error(`❌ Error en getSubAccountBalance:`, error.message);
