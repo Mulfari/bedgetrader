@@ -108,10 +108,10 @@ export class SubaccountsService {
   }
 
   // ✅ Crear una nueva subcuenta
-  async createSubAccount(userId: string, exchange: string, apiKey: string, apiSecret: string, name: string) {
+  async createSubAccount(userId: string, exchange: string, apiKey: string, apiSecret: string, name: string, isDemo: boolean = false) {
     try {
       console.log(`🔹 Creando subcuenta para usuario: ${userId}`);
-      console.log(`🔹 Datos: exchange=${exchange}, name=${name}, apiKey=${apiKey.substring(0, 5)}...`);
+      console.log(`🔹 Datos: exchange=${exchange}, name=${name}, apiKey=${apiKey.substring(0, 5)}..., isDemo=${isDemo}`);
       
       // Verificar que el usuario existe antes de crear la subcuenta
       const user = await this.prisma.user.findUnique({
@@ -130,7 +130,7 @@ export class SubaccountsService {
           apiKey, 
           apiSecret, 
           name,
-          isDemo: true // Establecer valor por defecto
+          isDemo // Usar el valor proporcionado en lugar de hardcodearlo como true
         },
         include: { user: true } // Incluir datos del usuario relacionado
       });

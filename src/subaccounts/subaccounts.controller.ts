@@ -108,7 +108,8 @@ export class SubaccountsController {
         exchange, 
         apiKey, 
         apiSecret, 
-        name
+        name,
+        demoStatus
       );
       
       console.log(`✅ Subcuenta creada exitosamente con ID: ${result.id}`);
