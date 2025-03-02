@@ -106,8 +106,51 @@ export class AccountDetailsService {
       return response.data.result;
 
     } catch (error) {
-      console.error('❌ Error en getAccountBalance:', error.response?.data || error.message);
-      throw new HttpException('Error al obtener balance', HttpStatus.INTERNAL_SERVER_ERROR);
+      console.error(`❌ Error en la solicitud a Bybit: ${error.message}`);
+      
+      // Registrar el código de error y el mensaje para depuración
+      const errorCode = error.response?.data?.retCode || error.response?.status;
+      const errorMessage = error.response?.data?.retMsg || error.message;
+      
+      console.error(`❌ Código de error: ${errorCode}, Mensaje: ${errorMessage}`);
+      
+      // Detectar error de restricción geográfica de CloudFront
+      const isCloudFrontError = 
+        error.message?.includes('403 - Forbidden') || 
+        error.message?.includes('CloudFront') || 
+        (error.response?.status === 403 && error.response?.data?.includes('CloudFront')) ||
+        (typeof error.response?.data === 'string' && error.response?.data.includes('CloudFront'));
+      
+      if (isCloudFrontError) {
+        console.error('❌ Detectada restricción geográfica de CloudFront');
+        throw new HttpException(
+          'La API de Bybit no está disponible en tu ubicación geográfica. Considera usar una VPN o contactar con soporte.',
+          HttpStatus.FORBIDDEN
+        );
+      }
+      
+      // Manejar diferentes códigos de error de Bybit
+      switch (errorCode) {
+        case 10001:
+          throw new HttpException('Parámetros incorrectos en la solicitud a Bybit', HttpStatus.BAD_REQUEST);
+        case 10002:
+          throw new HttpException('API Key inválida o expirada', HttpStatus.UNAUTHORIZED);
+        case 10003:
+          throw new HttpException('IP no autorizada para esta API Key', HttpStatus.UNAUTHORIZED);
+        case 10004:
+          throw new HttpException('La API Key no tiene permisos suficientes', HttpStatus.FORBIDDEN);
+        case 10005:
+          throw new HttpException('Timestamp de la solicitud demasiado antiguo', HttpStatus.BAD_REQUEST);
+        case 10006:
+          throw new HttpException('Firma inválida en la solicitud', HttpStatus.BAD_REQUEST);
+        case 10016:
+          throw new HttpException('Tipo de cuenta UNIFIED inválido para esta API Key', HttpStatus.BAD_REQUEST);
+        default:
+          throw new HttpException(
+            `Error al obtener balance real de la cuenta. Por favor verifica tus credenciales de API y que la cuenta tenga permisos de lectura. Detalles: ${errorMessage}`,
+            HttpStatus.BAD_REQUEST
+          );
+      }
     }
   }
 }

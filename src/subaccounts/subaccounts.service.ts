@@ -3,10 +3,18 @@ import { PrismaService } from '../prisma.service';
 import axios from 'axios';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import * as crypto from 'crypto';
+// Comentamos la importación que causa problemas y usamos axios directamente
+// import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
+import { SubAccount } from '@prisma/client';
 
 @Injectable()
 export class SubaccountsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    // private readonly httpService: HttpService, // Comentamos este servicio
+    private readonly configService: ConfigService,
+  ) {}
 
   // ✅ Obtener subcuentas del usuario autenticado
   async getSubAccounts(userId: string) {
@@ -44,382 +52,183 @@ export class SubaccountsService {
     }
   }
 
-  // ✅ Obtener el balance de una subcuenta en Bybit
-  async getSubAccountBalance(subAccountId: string, userId: string) {
+  // Método para buscar una subcuenta específica
+  async findOne(id: string, userId: string): Promise<SubAccount | null> {
     try {
-      console.log(`🔹 Obteniendo balance para subcuenta: ${subAccountId}, usuario: ${userId}`);
-      
-      // Verificar que el ID de usuario no sea undefined
-      if (!userId) {
-        console.error('❌ Error: ID de usuario es undefined');
-        throw new HttpException('ID de usuario no proporcionado', HttpStatus.BAD_REQUEST);
-      }
-      
-      // Buscar la subcuenta con más detalles para depuración
-      console.log(`🔹 Buscando subcuenta con ID: ${subAccountId} para usuario: ${userId}`);
-      
-      // Primero, verificar si la subcuenta existe en absoluto
-      const subAccountExists = await this.prisma.subAccount.findUnique({
-        where: { id: subAccountId },
+      return await this.prisma.subAccount.findFirst({
+        where: { 
+          id,
+          userId 
+        }
       });
+    } catch (error) {
+      console.error(`❌ Error al buscar subcuenta ${id}:`, error.message);
+      throw new HttpException('Error al buscar subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  // Método para generar datos simulados
+  private generateSimulatedData() {
+    const balance = Math.random() * 10000;
+    const performance = (Math.random() * 20) - 10; // Entre -10% y +10%
+    
+    // Generar algunos activos simulados
+    const assets: Array<{coin: string; walletBalance: number; usdValue: number}> = [
+      { coin: 'BTC', walletBalance: Math.random() * 0.5, usdValue: Math.random() * 2000 },
+      { coin: 'ETH', walletBalance: Math.random() * 5, usdValue: Math.random() * 1500 },
+      { coin: 'USDT', walletBalance: Math.random() * 5000, usdValue: Math.random() * 5000 }
+    ];
+    
+    return {
+      balance,
+      performance,
+      assets,
+      isSimulated: true
+    };
+  }
+
+  // Método para obtener balance del exchange
+  private async getExchangeBalance(subaccount: SubAccount): Promise<any> {
+    if (subaccount.exchange.toLowerCase() === 'bybit') {
+      return this.getBybitBalance(subaccount);
+    } else {
+      throw new Error(`Exchange ${subaccount.exchange} no soportado`);
+    }
+  }
+
+  // Método para obtener balance de Bybit
+  private async getBybitBalance(subaccount: SubAccount): Promise<any> {
+    try {
+      // 🔹 Configurar proxy
+      const proxyAgent = new HttpsProxyAgent(
+        "http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001"
+      );
+
+      // 🔹 Parámetros de autenticación
+      const timestamp = Date.now().toString();
+      const apiKey = subaccount.apiKey;
+      const apiSecret = subaccount.apiSecret;
+      const recvWindow = "5000";
+
+      // 🔹 QueryString requerido por Bybit V5
+      const queryParams = { accountType: "UNIFIED" };
+      const queryString = new URLSearchParams(queryParams).toString();
+
+      // 🔹 Crear el string para firmar
+      const signPayload = `${timestamp}${apiKey}${recvWindow}${queryString || ""}`;
+      const signature = crypto.createHmac('sha256', apiSecret).update(signPayload).digest('hex');
+
+      console.log(`🔍 String para firmar: ${signPayload}`);
+      console.log(`🔍 Firma generada: ${signature}`);
+
+      // 🔹 Headers actualizados para Bybit V5
+      const headers = {
+        'X-BAPI-API-KEY': apiKey,
+        'X-BAPI-TIMESTAMP': timestamp,
+        'X-BAPI-RECV-WINDOW': recvWindow,
+        'X-BAPI-SIGN': signature,
+      };
+
+      // 🔹 URL de Bybit para obtener el balance
+      const url = `https://api.bybit.com/v5/account/wallet-balance`;
+
+      console.log("📡 Enviando solicitud a Bybit...");
+
+      // 🔹 Hacer la solicitud a Bybit con tiempo de espera
+      const axiosConfig = {
+        headers,
+        params: queryParams,
+        httpsAgent: proxyAgent,
+        timeout: 5000, // 🔹 Timeout de 5 segundos para evitar esperas largas
+      };
+
+      const response = await axios.get(url, axiosConfig);
+
+      console.log(`📡 Respuesta de Bybit:`, JSON.stringify(response.data, null, 2));
+
+      if (!response.data || response.data.retCode !== 0) {
+        console.error(`❌ Error en Bybit: ${response.data.retMsg} (Código: ${response.data.retCode})`);
+        throw new Error(`Error en Bybit: ${response.data.retMsg}`);
+      }
+
+      // Procesar la respuesta para extraer el balance total y los activos
+      const result = response.data.result;
+      const totalBalance = result.totalEquity || result.totalWalletBalance || 0;
+      const assets: Array<{coin: string; walletBalance: number; usdValue: number}> = [];
+
+      // Extraer los activos si están disponibles
+      if (result.coin && Array.isArray(result.coin)) {
+        result.coin.forEach(coin => {
+          if (coin.walletBalance > 0) {
+            assets.push({
+              coin: coin.coin,
+              walletBalance: parseFloat(coin.walletBalance),
+              usdValue: parseFloat(coin.usdValue || 0)
+            });
+          }
+        });
+      }
+
+      return {
+        balance: parseFloat(totalBalance),
+        assets,
+        performance: 0, // Bybit no proporciona rendimiento directamente
+        isSimulated: false
+      };
+    } catch (error) {
+      console.error(`❌ Error al obtener balance de Bybit:`, error.message);
+      throw error;
+    }
+  }
+
+  // ✅ Obtener el balance de una subcuenta en Bybit
+  async getSubAccountBalance(id: string, userId: string): Promise<any> {
+    try {
+      const subaccount = await this.findOne(id, userId);
       
-      if (!subAccountExists) {
-        console.error(`❌ Subcuenta con ID ${subAccountId} no existe en la base de datos`);
+      if (!subaccount) {
         throw new HttpException('Subcuenta no encontrada', HttpStatus.NOT_FOUND);
       }
       
-      console.log(`🔹 Subcuenta encontrada en la base de datos. Propietario: ${subAccountExists.userId}`);
-      
-      // Ahora verificar si pertenece al usuario
-      if (subAccountExists.userId !== userId) {
-        console.error(`❌ La subcuenta pertenece al usuario ${subAccountExists.userId}, no al usuario ${userId}`);
-        throw new HttpException('No tienes permiso para acceder a esta subcuenta', HttpStatus.FORBIDDEN);
+      if (subaccount.isDemo) {
+        console.log(`⚠️ Cuenta demo ${id}: Generando datos simulados.`);
+        return this.generateSimulatedData();
       }
       
-      const subAccount = subAccountExists;
-
-      console.log(`🔹 Subcuenta encontrada: ${subAccount.name}, exchange: ${subAccount.exchange}`);
-      
-      // Verificar si es una cuenta demo o real
-      const isDemo = subAccount.isDemo === true;
-      console.log(`🔹 Tipo de cuenta: ${isDemo ? 'Demo' : 'Real'}`);
-      
-      // Si no es Bybit, lanzar error
-      if (subAccount.exchange.toLowerCase() !== 'bybit') {
-        console.error(`❌ Exchange no soportado: ${subAccount.exchange}`);
-        throw new HttpException(`Exchange ${subAccount.exchange} no soportado actualmente`, HttpStatus.BAD_REQUEST);
-      }
-
-      // Configurar el proxy con autenticación correcta y opciones adicionales
-      const proxyUrl = 'http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001';
-      console.log(`🔹 Configurando proxy: ${proxyUrl.replace(/\/\/(.+?):/g, '//*****:')}`);
-      
-      // Opción para deshabilitar el proxy en caso de problemas
-      const useProxy = false; // Deshabilitado para probar sin proxy
-      
-      // Crear el agente proxy solo si está habilitado
-      const proxyAgent = useProxy ? new HttpsProxyAgent(proxyUrl) : null;
-      console.log(`🔹 Proxy ${useProxy ? 'habilitado' : 'deshabilitado'} para esta solicitud`);
-
-      // Generar firma para la API de Bybit
-      const timestamp = Date.now().toString();
-      const apiKey = subAccount.apiKey;
-      const apiSecret = subAccount.apiSecret;
-      const recvWindow = "20000"; // Aumentado para dar más tiempo a la respuesta
-
-      console.log(`🔹 Generando firma para Bybit con apiKey: ${apiKey.substring(0, 5)}...`);
-
-      // Seleccionar el dominio correcto según el tipo de cuenta
-      const baseUrl = isDemo 
-        ? 'https://api-demo.bybit.com' // URL para cuentas demo
-        : 'https://api.bybit.com';     // URL para cuentas reales
-      
-      console.log(`🔹 Usando dominio de API: ${baseUrl} (${isDemo ? 'Demo' : 'Real'})`);
-      
-      // Endpoint para obtener el balance de la wallet
-      const endpoint = '/v5/account/wallet-balance';
-      
-      // Parámetros específicos según el tipo de cuenta
-      // Tanto para cuentas demo como reales, usamos solo UNIFIED
-      const accountTypes = ['UNIFIED'];
-      
-      console.log(`🔹 Tipos de cuenta a probar: ${accountTypes.join(', ')}`);
-      
-      // Intentar con el tipo de cuenta UNIFIED
-      let lastError: Error | null = null;
-      
-      for (const accountType of accountTypes) {
-        try {
-          console.log(`🔹 Intentando con tipo de cuenta: ${accountType}`);
-          
-          // Crear los parámetros de consulta
-          const params = new URLSearchParams();
-          params.append('accountType', accountType);
-          
-          // Construir la URL con los parámetros
-          const url = `${baseUrl}${endpoint}?${params.toString()}`;
-          console.log(`🔹 URL de la API: ${url}`);
-          
-          // Según la documentación de Bybit, la cadena para firmar debe ser:
-          // timestamp + apiKey + recvWindow + queryString
-          // donde queryString son los parámetros en orden alfabético
-          const queryString = `accountType=${accountType}`;
-          const stringToSign = timestamp + apiKey + recvWindow + queryString;
-          
-          console.log(`🔹 Parámetros para firma: timestamp=${timestamp}, apiKey=${apiKey.substring(0, 5)}..., recvWindow=${recvWindow}, queryString=${queryString}`);
-          console.log(`🔹 Cadena para firma: ${stringToSign.replace(apiKey, apiKey.substring(0, 5) + '...')}`);
-          
-          // Generar la firma HMAC SHA256
-          const signature = crypto
-            .createHmac('sha256', apiSecret)
-            .update(stringToSign)
-            .digest('hex');
-          
-          console.log(`🔹 Firma generada: ${signature.substring(0, 10)}...`);
-          
-          // Configuración para Axios
-          const axiosConfig: any = {
-            headers: {
-              'X-BAPI-API-KEY': apiKey,
-              'X-BAPI-TIMESTAMP': timestamp,
-              'X-BAPI-RECV-WINDOW': recvWindow,
-              'X-BAPI-SIGN': signature,
-              'Content-Type': 'application/json'
-            },
-            timeout: 30000, // 30 segundos de timeout
-            maxRedirects: 5,
-            validateStatus: function (status) {
-              return true; // Aceptar cualquier código de estado
-            }
-          };
-          
-          // Añadir el proxy solo si está habilitado
-          if (useProxy && proxyAgent) {
-            axiosConfig.httpsAgent = proxyAgent;
-            console.log(`🔹 Usando proxy para esta solicitud`);
-          } else {
-            console.log(`🔹 Solicitud sin proxy`);
-          }
-          
-          console.log(`🔹 Realizando solicitud para tipo de cuenta ${accountType}...`);
-          
-          // Realizar la solicitud con reintentos
-          let retries = 0;
-          const maxRetries = 2;
-          let response: any = null;
-          
-          while (retries <= maxRetries && !response) {
-            try {
-              if (retries > 0) {
-                console.log(`🔄 Reintento ${retries}/${maxRetries} para la solicitud a Bybit...`);
-              }
-              
-              console.log(`🔹 Enviando solicitud a Bybit con headers:`, {
-                'X-BAPI-API-KEY': apiKey.substring(0, 5) + '...',
-                'X-BAPI-TIMESTAMP': timestamp,
-                'X-BAPI-RECV-WINDOW': recvWindow,
-                'X-BAPI-SIGN': signature.substring(0, 10) + '...',
-              });
-              
-              const result = await axios.get(url, axiosConfig);
-              
-              console.log(`🔹 Respuesta recibida con status: ${result.status}`);
-              console.log(`🔹 Headers de respuesta: ${JSON.stringify(result.headers)}`);
-              
-              // Verificar si el código de estado es un error
-              if (result.status >= 400) {
-                console.error(`❌ Error HTTP: ${result.status} - ${result.statusText}`);
-                console.error(`❌ Cuerpo de la respuesta: ${JSON.stringify(result.data)}`);
-                
-                // Si es un error 522 (Connection Timed Out), reintentar
-                if (result.status === 522 && retries < maxRetries) {
-                  retries++;
-                  console.log(`⏱️ Error de timeout (522). Esperando antes de reintentar...`);
-                  await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar 2 segundos
-                  continue;
-                }
-                
-                throw new Error(`Error HTTP: ${result.status} - ${result.statusText}`);
-              }
-              
-              response = result;
-            } catch (error) {
-              console.error(`❌ Error en la solicitud a Bybit:`, error.message);
-              
-              // Si es un error de Axios con respuesta, mostrar detalles
-              if (error.response) {
-                console.error(`❌ Status: ${error.response.status}`);
-                console.error(`❌ Datos: ${JSON.stringify(error.response.data)}`);
-                console.error(`❌ Headers: ${JSON.stringify(error.response.headers)}`);
-              } else if (error.request) {
-                // La solicitud fue hecha pero no se recibió respuesta
-                console.error(`❌ No se recibió respuesta: ${error.request}`);
-              }
-              
-              // Si es un error de timeout o conexión y aún tenemos reintentos disponibles
-              if ((error.code === 'ECONNABORTED' || error.message?.includes('timeout')) && retries < maxRetries) {
-                retries++;
-                console.log(`⏱️ Error de timeout. Esperando antes de reintentar...`);
-                await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar 2 segundos
-              } else {
-                throw error; // Propagar el error si no podemos manejarlo
-              }
-            }
-          }
-          
-          if (!response) {
-            throw new Error('No se pudo obtener respuesta después de los reintentos');
-          }
-          
-          console.log(`✅ Respuesta de Bybit recibida con código: ${response.status}`);
-          
-          // Verificar si la respuesta es válida
-          if (!response.data) {
-            console.error(`❌ Error: Respuesta vacía de Bybit`);
-            throw new Error('Respuesta vacía de Bybit');
-          }
-          
-          // Imprimir la respuesta completa para depuración
-          console.log(`✅ Respuesta completa: ${JSON.stringify(response.data)}`);
-          
-          if (response.data.retCode !== 0) {
-            console.error(`❌ Error en respuesta de Bybit: Código ${response.data.retCode}, Mensaje: ${response.data.retMsg}`);
-            
-            // Manejar errores específicos de Bybit
-            switch (response.data.retCode) {
-              case 10001:
-                console.error('❌ Error de parámetro: Parámetros incorrectos');
-                break;
-              case 10002:
-                console.error('❌ Error de autenticación: API key inválida');
-                break;
-              case 10003:
-                console.error('❌ Error de IP: IP no está en la lista blanca');
-                break;
-              case 10004:
-                console.error('❌ Error de permisos: La API key no tiene permisos suficientes');
-                break;
-              case 10005:
-                console.error('❌ Error de timestamp: Timestamp demasiado antiguo');
-                break;
-              case 10006:
-                console.error('❌ Error de firma: Firma inválida');
-                break;
-              case 10016:
-                console.error('❌ Error de tipo de cuenta: Tipo de cuenta no válido para esta API key');
-                break;
-              default:
-                console.error(`❌ Error desconocido de Bybit: ${response.data.retMsg}`);
-            }
-            
-            // Si es un error de tipo de cuenta no válido, probar con el siguiente tipo
-            if (response.data.retCode === 10001 || response.data.retCode === 10002 || response.data.retCode === 10016) {
-              console.log(`⚠️ Tipo de cuenta ${accountType} no válido para esta API key.`);
-              lastError = new Error(`Tipo de cuenta ${accountType} no válido: ${response.data.retMsg}`);
-              continue;
-            }
-            
-            // Para otros errores, lanzar excepción
-            throw new Error(`Error de Bybit: ${response.data.retMsg} (Código: ${response.data.retCode})`);
-          }
-          
-          // Verificar que la estructura de datos esperada existe
-          if (!response.data.result || !response.data.result.list || !Array.isArray(response.data.result.list)) {
-            console.error(`❌ Error: Estructura de datos inesperada en la respuesta de Bybit`);
-            console.error(`❌ Datos recibidos: ${JSON.stringify(response.data)}`);
-            throw new Error('Estructura de datos inesperada en la respuesta de Bybit');
-          }
-          
-          // Extraer todos los assets
-          let assets: Array<{coin: string; walletBalance: number; usdValue: number}> = [];
-          let totalBalance = 0;
-          
+      try {
+        console.log(`🔍 Obteniendo balance real para cuenta ${id} en ${subaccount.exchange}`);
+        
+        // Intentar obtener el balance real
+        const balance = await this.getExchangeBalance(subaccount);
+        return balance;
+      } catch (error) {
+        // Si el error es de restricción geográfica, intentar con el proxy
+        if (error.message?.includes('ubicación geográfica') || 
+            error.message?.includes('CloudFront') || 
+            error.response?.status === 403) {
+          console.log('⚠️ Detectada restricción geográfica, intentando con proxy alternativo...');
           try {
-            // Iterar sobre cada wallet en la lista
-            for (const wallet of response.data.result.list) {
-              console.log(`🔹 Procesando wallet: ${JSON.stringify(wallet)}`);
-              
-              // Verificar si hay monedas en esta wallet
-              if (wallet.coin && Array.isArray(wallet.coin)) {
-                // Procesar cada moneda
-                for (const coin of wallet.coin) {
-                  if (coin && coin.coin && coin.walletBalance && parseFloat(coin.walletBalance) > 0) {
-                    const walletBalance = parseFloat(coin.walletBalance);
-                    const usdValue = parseFloat(coin.usdValue || '0');
-                    
-                    assets.push({
-                      coin: coin.coin,
-                      walletBalance: walletBalance,
-                      usdValue: usdValue
-                    });
-                    
-                    // Sumar al balance total
-                    totalBalance += usdValue;
-                  }
-                }
-              }
-            }
-            
-            console.log(`✅ Assets extraídos: ${assets.length}`);
-            console.log(`✅ Balance total calculado: ${totalBalance.toFixed(2)}`);
-            
-            // Si no se encontraron assets, mostrar advertencia
-            if (assets.length === 0) {
-              console.warn(`⚠️ No se encontraron assets con balance positivo en la respuesta de Bybit`);
-            }
-          } catch (parseError) {
-            console.error(`❌ Error al procesar los assets: ${parseError.message}`);
-            console.error(`❌ Datos que causaron el error: ${JSON.stringify(response.data.result.list)}`);
-            throw new Error(`Error al procesar los datos de Bybit: ${parseError.message}`);
+            const balanceViaProxy = await this.getExchangeBalanceViaProxy(subaccount);
+            return balanceViaProxy;
+          } catch (proxyError) {
+            console.error('❌ Error al intentar con proxy:', proxyError.message);
+            throw new HttpException(
+              'No se pudo obtener el balance real de la cuenta, incluso usando métodos alternativos. Por favor verifica tus credenciales de API.',
+              HttpStatus.BAD_REQUEST
+            );
           }
-          
-          // Calcular rendimiento simulado (en un sistema real, esto vendría de datos históricos)
-          const performance = Math.random() * 20 - 10; // Entre -10% y +10%
-          
-          console.log(`✅ Balance total calculado: ${totalBalance.toFixed(2)}, con ${assets.length} activos`);
-          
-          // Si llegamos aquí, hemos tenido éxito con este tipo de cuenta
-          return {
-            balance: totalBalance,
-            assets: assets,
-            performance: performance,
-            accountType: accountType // Incluir el tipo de cuenta que funcionó
-          };
-        } catch (error) {
-          console.error(`❌ Error al intentar con tipo de cuenta ${accountType}: ${error.message}`);
-          lastError = error;
-          
-          // Continuar con el siguiente tipo de cuenta
-          continue;
         }
-      }
-      
-      // Si llegamos aquí, ningún tipo de cuenta funcionó
-      console.error(`❌ Todos los tipos de cuenta fallaron. Último error: ${lastError?.message}`);
-      
-      // Solo usar datos simulados para cuentas demo, no para cuentas reales
-      if (isDemo) {
-        console.warn(`⚠️ Usando datos simulados para cuenta DEMO debido a problemas con la API de Bybit`);
         
-        // Datos simulados para desarrollo/pruebas
-        const simulatedAssets = [
-          { coin: 'USDT', walletBalance: 1000.0, usdValue: 1000.0 },
-          { coin: 'BTC', walletBalance: 0.05, usdValue: 3000.0 },
-          { coin: 'ETH', walletBalance: 1.5, usdValue: 4500.0 }
-        ];
-        
-        const simulatedBalance = simulatedAssets.reduce((sum, asset) => sum + asset.usdValue, 0);
-        const simulatedPerformance = Math.random() * 20 - 10; // Entre -10% y +10%
-        
-        console.log(`✅ Datos simulados generados: Balance ${simulatedBalance.toFixed(2)}, ${simulatedAssets.length} activos`);
-        
-        return {
-          balance: simulatedBalance,
-          assets: simulatedAssets,
-          performance: simulatedPerformance,
-          isSimulated: true // Indicar que son datos simulados
-        };
-      } else {
-        // Para cuentas reales, lanzar un error claro en lugar de usar datos simulados
-        console.error(`❌ No se pudo obtener el balance real para la cuenta de Bybit`);
+        // Para cuentas reales, no generar datos simulados, lanzar el error
+        console.error(`❌ Error obteniendo balance para subcuenta ${id}:`, error.message);
         throw new HttpException(
-          'No se pudo obtener el balance real de la cuenta. Por favor verifica tus credenciales de API y que la cuenta tenga permisos de lectura.',
+          `No se pudo obtener el balance real de la cuenta. Por favor verifica tus credenciales de API y que la cuenta tenga permisos de lectura.`,
           HttpStatus.BAD_REQUEST
         );
       }
     } catch (error) {
-      console.error('❌ Error en getSubAccountBalance:', error.message);
-      
-      // Si ya es un HttpException, lo propagamos
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      
-      // Para otros errores, lanzamos un error genérico
-      throw new HttpException(
-        `Error al obtener balance: ${error.message}`, 
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
+      console.error(`❌ Error en getSubAccountBalance:`, error.message);
+      throw error;
     }
   }
 
@@ -502,6 +311,33 @@ export class SubaccountsService {
       return await this.prisma.subAccount.delete({ where: { id } });
     } catch (error) {
       throw new HttpException('Error al eliminar subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  // Nuevo método para obtener balance a través de un proxy
+  private async getExchangeBalanceViaProxy(subaccount: SubAccount): Promise<any> {
+    // Aquí implementaríamos la lógica para usar un proxy o servicio alternativo
+    // Esta es una implementación de ejemplo que podría adaptarse según tus necesidades
+    
+    const proxyUrl = this.configService.get('PROXY_SERVICE_URL');
+    if (!proxyUrl) {
+      throw new Error('No hay configurado un servicio de proxy alternativo');
+    }
+    
+    try {
+      console.log(`🔄 Intentando obtener balance a través de proxy para ${subaccount.exchange}...`);
+      
+      // Usar axios directamente en lugar de httpService
+      const response = await axios.post(`${proxyUrl}/proxy/bybit/balance`, {
+        apiKey: subaccount.apiKey,
+        secretKey: subaccount.apiSecret,
+        exchange: subaccount.exchange
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error al usar el servicio proxy:', error.message);
+      throw error;
     }
   }
 }
