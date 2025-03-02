@@ -84,7 +84,8 @@ export class SubaccountsService {
       performance,
       assets,
       isSimulated: true,
-      isDebug: false // Añadir propiedad isDebug con valor por defecto false
+      isDebug: false, // Añadir propiedad isDebug con valor por defecto false
+      isDemo: false   // Añadir propiedad isDemo con valor por defecto false
     };
   }
 
@@ -112,6 +113,7 @@ export class SubaccountsService {
       const recvWindow = "5000";
 
       // 🔹 QueryString requerido por Bybit V5
+      // Usar el mismo tipo de cuenta UNIFIED para todas las cuentas (reales y demo)
       const queryParams = { accountType: "UNIFIED" };
       const queryString = new URLSearchParams(queryParams).toString();
 
@@ -131,9 +133,14 @@ export class SubaccountsService {
       };
 
       // 🔹 URL de Bybit para obtener el balance
-      const url = `https://api.bybit.com/v5/account/wallet-balance`;
-
-      console.log("📡 Enviando solicitud a Bybit...");
+      // Usar la URL correcta según si es una cuenta demo o real
+      const baseUrl = subaccount.isDemo 
+        ? "https://api-testnet.bybit.com" // URL para cuentas demo (testnet)
+        : "https://api.bybit.com";        // URL para cuentas reales
+      
+      const url = `${baseUrl}/v5/account/wallet-balance`;
+      
+      console.log(`📡 Enviando solicitud a Bybit (${subaccount.isDemo ? 'DEMO' : 'REAL'}): ${url}`);
 
       // 🔹 Hacer la solicitud a Bybit con tiempo de espera
       const axiosConfig = {
@@ -199,7 +206,8 @@ export class SubaccountsService {
         balance: totalBalance,
         assets,
         performance: 0, // Bybit no proporciona rendimiento directamente
-        isSimulated: false
+        isSimulated: false,
+        isDemo: subaccount.isDemo // Indicar si es una cuenta demo
       };
     } catch (error) {
       console.error(`❌ Error al obtener balance de Bybit:`, error.message);
@@ -221,18 +229,20 @@ export class SubaccountsService {
       
       console.log(`✅ Subcuenta encontrada: ${JSON.stringify(subaccount)}`);
       
-      if (subaccount.isDemo) {
-        console.log(`⚠️ Cuenta demo ${id}: Generando datos simulados.`);
-        return this.generateSimulatedData();
-      }
-      
+      // Tanto para cuentas demo como reales, intentamos obtener el balance real de Bybit
       try {
-        console.log(`🔍 Obteniendo balance real para cuenta ${id} en ${subaccount.exchange}`);
+        console.log(`🔍 Obteniendo balance para cuenta ${id} en ${subaccount.exchange} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
         
         // Intentar obtener el balance real
         try {
           const balance = await this.getExchangeBalance(subaccount);
           console.log(`✅ Balance obtenido correctamente: ${JSON.stringify(balance)}`);
+          
+          // Si es una cuenta demo, marcamos los datos como demo
+          if (subaccount.isDemo) {
+            balance.isDemo = true;
+          }
+          
           return balance;
         } catch (exchangeError) {
           console.error(`❌ Error al obtener balance de ${subaccount.exchange}:`, exchangeError.message);
@@ -247,35 +257,54 @@ export class SubaccountsService {
               console.log(`🔄 Llamando a getExchangeBalanceViaProxy para ${id}...`);
               const balanceViaProxy = await this.getExchangeBalanceViaProxy(subaccount);
               console.log(`✅ Balance obtenido vía proxy: ${JSON.stringify(balanceViaProxy)}`);
+              
+              // Si es una cuenta demo, marcamos los datos como demo
+              if (subaccount.isDemo) {
+                balanceViaProxy.isDemo = true;
+              }
+              
               return balanceViaProxy;
             } catch (proxyError) {
               console.error('❌ Error al intentar con proxy:', proxyError.message);
               
-              // Para depuración, devolver datos simulados temporalmente
-              console.log(`⚠️ Devolviendo datos simulados temporales para depuración...`);
-              const debugData = this.generateSimulatedData();
-              debugData.isSimulated = true;
-              debugData.isDebug = true; // Marcar como datos de depuración
-              return debugData;
+              // Si es una cuenta demo y no se pudo obtener el balance real, generar datos simulados
+              if (subaccount.isDemo) {
+                console.log(`⚠️ Cuenta demo ${id}: Generando datos simulados como fallback.`);
+                return this.generateSimulatedData();
+              }
+              
+              // Para cuentas reales, lanzar el error
+              throw new HttpException(
+                'No se pudo obtener el balance real de la cuenta, incluso usando métodos alternativos. Por favor verifica tus credenciales de API.',
+                HttpStatus.BAD_REQUEST
+              );
             }
           }
           
-          // Para depuración, devolver datos simulados temporalmente
-          console.log(`⚠️ Devolviendo datos simulados temporales para depuración...`);
-          const debugData = this.generateSimulatedData();
-          debugData.isSimulated = true;
-          debugData.isDebug = true; // Marcar como datos de depuración
-          return debugData;
+          // Si es una cuenta demo y no se pudo obtener el balance real, generar datos simulados
+          if (subaccount.isDemo) {
+            console.log(`⚠️ Cuenta demo ${id}: Generando datos simulados como fallback.`);
+            return this.generateSimulatedData();
+          }
+          
+          // Para cuentas reales, lanzar el error
+          console.error(`❌ Error obteniendo balance para subcuenta ${id}:`, exchangeError.message);
+          throw new HttpException(
+            `No se pudo obtener el balance real de la cuenta. Por favor verifica tus credenciales de API y que la cuenta tenga permisos de lectura.`,
+            HttpStatus.BAD_REQUEST
+          );
         }
       } catch (error) {
         console.error(`❌ Error general en getSubAccountBalance:`, error.message);
         
-        // Para depuración, devolver datos simulados temporalmente
-        console.log(`⚠️ Devolviendo datos simulados temporales para depuración...`);
-        const debugData = this.generateSimulatedData();
-        debugData.isSimulated = true;
-        debugData.isDebug = true; // Marcar como datos de depuración
-        return debugData;
+        // Si es una cuenta demo, generar datos simulados
+        if (subaccount.isDemo) {
+          console.log(`⚠️ Cuenta demo ${id}: Generando datos simulados como fallback.`);
+          return this.generateSimulatedData();
+        }
+        
+        // Para cuentas reales, propagar el error
+        throw error;
       }
     } catch (error) {
       console.error(`❌ Error en getSubAccountBalance:`, error.message);
@@ -365,28 +394,132 @@ export class SubaccountsService {
     }
   }
 
-  // Nuevo método para obtener balance a través de un proxy
+  // Método para obtener balance a través de un proxy
   private async getExchangeBalanceViaProxy(subaccount: SubAccount): Promise<any> {
     // Implementación temporal que devuelve datos simulados para depuración
-    console.log(`🔄 Método getExchangeBalanceViaProxy llamado para ${subaccount.exchange}...`);
-    console.log(`🔄 Generando datos simulados para depuración...`);
+    console.log(`🔄 Método getExchangeBalanceViaProxy llamado para ${subaccount.exchange} (${subaccount.isDemo ? 'DEMO' : 'REAL'})...`);
     
-    // Generar datos simulados para pruebas
-    const balance = Math.random() * 10000;
-    const performance = (Math.random() * 20) - 10; // Entre -10% y +10%
-    
-    // Generar algunos activos simulados
-    const assets: Array<{coin: string; walletBalance: number; usdValue: number}> = [
-      { coin: 'BTC', walletBalance: Math.random() * 0.5, usdValue: Math.random() * 2000 },
-      { coin: 'ETH', walletBalance: Math.random() * 5, usdValue: Math.random() * 1500 },
-      { coin: 'USDT', walletBalance: Math.random() * 5000, usdValue: Math.random() * 5000 }
-    ];
-    
-    return {
-      balance,
-      performance,
-      assets,
-      isSimulated: true
-    };
+    try {
+      // 🔹 Configurar proxy alternativo (usando un proxy diferente)
+      const proxyAgent = new HttpsProxyAgent(
+        "http://spj4f84ugp:cquYV74a4kWrct_V9h@us.smartproxy.com:20001" // Usar servidor en US
+      );
+
+      // 🔹 Parámetros de autenticación
+      const timestamp = Date.now().toString();
+      const apiKey = subaccount.apiKey;
+      const apiSecret = subaccount.apiSecret;
+      const recvWindow = "5000";
+
+      // 🔹 QueryString requerido por Bybit V5
+      const queryParams = { accountType: "UNIFIED" };
+      const queryString = new URLSearchParams(queryParams).toString();
+
+      // 🔹 Crear el string para firmar
+      const signPayload = `${timestamp}${apiKey}${recvWindow}${queryString || ""}`;
+      const signature = crypto.createHmac('sha256', apiSecret).update(signPayload).digest('hex');
+
+      console.log(`🔍 String para firmar (proxy): ${signPayload}`);
+      console.log(`🔍 Firma generada (proxy): ${signature}`);
+
+      // 🔹 Headers actualizados para Bybit V5
+      const headers = {
+        'X-BAPI-API-KEY': apiKey,
+        'X-BAPI-TIMESTAMP': timestamp,
+        'X-BAPI-RECV-WINDOW': recvWindow,
+        'X-BAPI-SIGN': signature,
+      };
+
+      // 🔹 URL de Bybit para obtener el balance
+      // Usar la URL correcta según si es una cuenta demo o real
+      const baseUrl = subaccount.isDemo 
+        ? "https://api-testnet.bybit.com" // URL para cuentas demo (testnet)
+        : "https://api.bybit.com";        // URL para cuentas reales
+      
+      const url = `${baseUrl}/v5/account/wallet-balance`;
+      
+      console.log(`📡 Enviando solicitud a Bybit vía proxy alternativo (${subaccount.isDemo ? 'DEMO' : 'REAL'}): ${url}`);
+
+      // 🔹 Hacer la solicitud a Bybit con tiempo de espera
+      const axiosConfig = {
+        headers,
+        params: queryParams,
+        httpsAgent: proxyAgent,
+        timeout: 8000, // 🔹 Timeout más largo para el proxy alternativo
+      };
+
+      const response = await axios.get(url, axiosConfig);
+
+      console.log(`📡 Respuesta de Bybit vía proxy:`, JSON.stringify(response.data, null, 2));
+
+      if (!response.data || response.data.retCode !== 0) {
+        console.error(`❌ Error en Bybit vía proxy: ${response.data.retMsg} (Código: ${response.data.retCode})`);
+        throw new Error(`Error en Bybit vía proxy: ${response.data.retMsg}`);
+      }
+
+      // Procesar la respuesta para extraer el balance total y los activos
+      const result = response.data.result;
+      
+      // Verificar si hay datos en el resultado
+      if (!result || !result.list || result.list.length === 0) {
+        console.error('❌ No se encontraron datos de balance en la respuesta de Bybit vía proxy');
+        throw new Error('No se encontraron datos de balance en la respuesta de Bybit vía proxy');
+      }
+      
+      // Obtener el primer elemento de la lista (cuenta UNIFIED)
+      const accountData = result.list[0];
+      
+      // Verificar si hay datos de la cuenta
+      if (!accountData || !accountData.coin || !Array.isArray(accountData.coin)) {
+        console.error('❌ Estructura de datos inesperada en la respuesta de Bybit vía proxy');
+        throw new Error('Estructura de datos inesperada en la respuesta de Bybit vía proxy');
+      }
+      
+      // Calcular el balance total sumando los usdValue de todas las monedas
+      let totalBalance = 0;
+      const assets: Array<{coin: string; walletBalance: number; usdValue: number}> = [];
+      
+      // Procesar cada moneda
+      accountData.coin.forEach(coin => {
+        // Verificar si la moneda tiene un valor en USD
+        const usdValue = parseFloat(coin.usdValue || '0');
+        
+        // Sumar al balance total
+        totalBalance += usdValue;
+        
+        // Solo incluir monedas con balance positivo
+        if (usdValue > 0 || parseFloat(coin.walletBalance || '0') > 0) {
+          assets.push({
+            coin: coin.coin,
+            walletBalance: parseFloat(coin.walletBalance || '0'),
+            usdValue: usdValue
+          });
+        }
+      });
+      
+      console.log(`✅ Balance total calculado vía proxy: ${totalBalance}`);
+      console.log(`✅ Activos procesados vía proxy: ${assets.length}`);
+      
+      return {
+        balance: totalBalance,
+        assets,
+        performance: 0, // Bybit no proporciona rendimiento directamente
+        isSimulated: false,
+        isDemo: subaccount.isDemo // Indicar si es una cuenta demo
+      };
+    } catch (error) {
+      console.error(`❌ Error al obtener balance vía proxy:`, error.message);
+      
+      // Si es una cuenta demo, generar datos simulados como fallback
+      if (subaccount.isDemo) {
+        console.log(`⚠️ Generando datos simulados como fallback para cuenta demo...`);
+        const simulatedData = this.generateSimulatedData();
+        simulatedData.isDemo = true;
+        return simulatedData;
+      }
+      
+      // Para cuentas reales, propagar el error
+      throw error;
+    }
   }
 }
