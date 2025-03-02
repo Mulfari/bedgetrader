@@ -10,6 +10,7 @@ import {
   HttpException,
   HttpStatus,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import { SubaccountsService } from './subaccounts.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -73,29 +74,33 @@ export class SubaccountsController {
   // ✅ Obtener el balance de una subcuenta desde Bybit
   @UseGuards(JwtAuthGuard)
   @Get(':id/balance')
-  async getSubAccountBalance(@Req() req, @Param('id') id: string) {
+  async getSubAccountBalance(@Param('id') id: string, @Request() req) {
     try {
-      const userId = req.user.sub;
-      console.log(`🔹 Solicitud de balance para subcuenta: ${id}, usuario: ${userId}`);
+      console.log(`🔹 Solicitud de balance para subcuenta: ${id}`);
+      const userId = req.user.id;
       
-      // Verificar token JWT
-      console.log(`🔹 Encabezado Authorization recibido: ${req.headers.authorization?.substring(0, 20)}...`);
+      // Intentar obtener el balance
+      const balance = await this.subaccountsService.getSubAccountBalance(id, userId);
       
-      const result = await this.subaccountsService.getSubAccountBalance(id, userId);
-      console.log(`✅ Balance obtenido correctamente para subcuenta: ${id}`);
+      // Verificar si son datos simulados
+      if (balance.isSimulated) {
+        console.log(`⚠️ Devolviendo datos simulados para subcuenta: ${id}`);
+      } else {
+        console.log(`✅ Balance obtenido correctamente para subcuenta: ${id}`);
+      }
       
-      return result;
+      return balance;
     } catch (error) {
-      console.error('❌ Error obteniendo balance:', error);
+      console.error(`❌ Error obteniendo balance para subcuenta ${id}:`, error.message);
       
-      // Si es un HttpException, mantener el status code original
+      // Si es un error específico de HTTP, propagarlo
       if (error instanceof HttpException) {
         throw error;
       }
       
-      // Para otros errores, devolver un 500 con mensaje genérico
+      // Para otros errores, crear un HttpException con el mensaje adecuado
       throw new HttpException(
-        'Error al obtener balance. Por favor, inténtelo de nuevo más tarde.', 
+        `Error al obtener balance: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR
       );
     }
