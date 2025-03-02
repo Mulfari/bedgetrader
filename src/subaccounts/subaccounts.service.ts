@@ -60,14 +60,14 @@ export class SubaccountsService {
 
       console.log(`🔹 Subcuenta encontrada: ${subAccount.name}, exchange: ${subAccount.exchange}`);
       
-      // Si es una cuenta demo, usamos la API de demo de Bybit
+      // Verificar si es una cuenta demo o real
       const isDemo = subAccount.isDemo === true;
       console.log(`🔹 Tipo de cuenta: ${isDemo ? 'Demo' : 'Real'}`);
       
-      // Si no es Bybit, generamos datos simulados
+      // Si no es Bybit, lanzar error
       if (subAccount.exchange.toLowerCase() !== 'bybit') {
-        console.log(`🔹 Exchange no soportado: ${subAccount.exchange}, generando datos simulados`);
-        return this.generateSimulatedAccountData();
+        console.error(`❌ Exchange no soportado: ${subAccount.exchange}`);
+        throw new HttpException(`Exchange ${subAccount.exchange} no soportado actualmente`, HttpStatus.BAD_REQUEST);
       }
 
       // Configurar el proxy con autenticación correcta
@@ -91,15 +91,17 @@ export class SubaccountsService {
       
       // Endpoint para obtener el balance de la wallet
       const endpoint = '/v5/account/wallet-balance';
-      const queryParams = 'accountType=UNIFIED';
-      const url = `${baseUrl}${endpoint}?${queryParams}`;
+      const queryString = 'accountType=UNIFIED';
+      const url = `${baseUrl}${endpoint}?${queryString}`;
       
       console.log(`🔹 URL de la API: ${url}`);
 
       // Ordenar los parámetros correctamente para la firma
-      // Nota: Los parámetros deben estar en orden alfabético
-      const params = `accountType=UNIFIED&api_key=${apiKey}&recv_window=${recvWindow}&timestamp=${timestamp}`;
-      const signature = crypto.createHmac('sha256', apiSecret).update(params).digest('hex');
+      // Nota: Los parámetros deben estar en orden alfabético según la documentación de Bybit
+      const signParams = `accountType=UNIFIED&api_key=${apiKey}&recv_window=${recvWindow}&timestamp=${timestamp}`;
+      const signature = crypto.createHmac('sha256', apiSecret).update(signParams).digest('hex');
+
+      console.log(`🔹 Parámetros para firma: ${signParams.replace(apiKey, apiKey.substring(0, 5) + '...')}`);
 
       // Headers según la documentación de Bybit V5
       const headers = {
@@ -119,23 +121,68 @@ export class SubaccountsService {
 
       // Hacer la solicitud a Bybit
       console.log(`🔹 Realizando solicitud a Bybit...`);
-      const response = await axios.get(url, {
-        headers,
-        httpsAgent: proxyAgent,
-        timeout: 15000 // 15 segundos de timeout
-      });
-
-      console.log(`✅ Respuesta de Bybit recibida con código: ${response.status}`);
-      
-      // Verificar si la respuesta es válida
-      if (!response.data || response.data.retCode !== 0) {
-        console.error(`❌ Error en respuesta de Bybit: ${JSON.stringify(response.data)}`);
-        // Si hay un error en la API, generamos datos simulados en lugar de fallar
-        console.log(`🔹 Generando datos simulados debido a error en API`);
-        return this.generateSimulatedAccountData();
-      }
-
+      let response;
       try {
+        response = await axios.get(url, {
+          headers,
+          httpsAgent: proxyAgent,
+          timeout: 15000 // 15 segundos de timeout
+        });
+
+        console.log(`✅ Respuesta de Bybit recibida con código: ${response.status}`);
+        console.log(`✅ Respuesta completa: ${JSON.stringify(response.data).substring(0, 1000)}...`);
+        
+        // Verificar si la respuesta es válida
+        if (!response.data) {
+          console.error(`❌ Error: Respuesta vacía de Bybit`);
+          throw new HttpException(
+            `Error al obtener balance de Bybit: Respuesta vacía`, 
+            HttpStatus.BAD_REQUEST
+          );
+        }
+        
+        if (response.data.retCode !== 0) {
+          console.error(`❌ Error en respuesta de Bybit: Código ${response.data.retCode}, Mensaje: ${response.data.retMsg}`);
+          
+          // Manejar códigos de error específicos de Bybit
+          if (response.data.retCode === 10001) {
+            throw new HttpException(
+              `Error de autenticación en Bybit: Verifique sus credenciales API`, 
+              HttpStatus.UNAUTHORIZED
+            );
+          } else if (response.data.retCode === 10003) {
+            throw new HttpException(
+              `API Key inválida o expirada`, 
+              HttpStatus.UNAUTHORIZED
+            );
+          } else if (response.data.retCode === 10004) {
+            throw new HttpException(
+              `Firma inválida en la solicitud a Bybit`, 
+              HttpStatus.BAD_REQUEST
+            );
+          } else if (response.data.retCode === 10016) {
+            throw new HttpException(
+              `Servicio no disponible para este tipo de cuenta`, 
+              HttpStatus.BAD_REQUEST
+            );
+          } else {
+            throw new HttpException(
+              `Error al obtener balance de Bybit: ${response.data.retMsg || 'Error desconocido'} (Código: ${response.data.retCode})`, 
+              HttpStatus.BAD_REQUEST
+            );
+          }
+        }
+
+        // Verificar que la estructura de datos esperada existe
+        if (!response.data.result || !response.data.result.list || !Array.isArray(response.data.result.list)) {
+          console.error(`❌ Error: Estructura de datos inesperada en la respuesta de Bybit`);
+          console.error(`❌ Datos recibidos: ${JSON.stringify(response.data)}`);
+          throw new HttpException(
+            `Error al procesar los datos de Bybit: Estructura de datos inesperada`, 
+            HttpStatus.INTERNAL_SERVER_ERROR
+          );
+        }
+
         // Extraer todos los assets
         const assets = response.data.result.list
           .flatMap((wallet: any) => wallet.coin || [])
@@ -150,6 +197,7 @@ export class SubaccountsService {
         const totalBalance = assets.reduce((sum: number, asset: any) => sum + asset.usdValue, 0);
 
         // Calcular rendimiento simulado (en un sistema real, esto vendría de datos históricos)
+        // Nota: En una implementación completa, este valor debería venir de datos históricos reales
         const performance = Math.random() * 20 - 10; // Entre -10% y +10%
 
         console.log(`✅ Balance total calculado: ${totalBalance.toFixed(2)}, con ${assets.length} activos`);
@@ -159,88 +207,52 @@ export class SubaccountsService {
           assets: assets,
           performance: performance
         };
-      } catch (parseError) {
-        console.error(`❌ Error al procesar la respuesta de Bybit: ${parseError.message}`);
-        console.error(`❌ Datos recibidos: ${JSON.stringify(response.data).substring(0, 500)}...`);
-        // Si hay un error al procesar la respuesta, generamos datos simulados
-        return this.generateSimulatedAccountData();
+      } catch (axiosError) {
+        // Manejar errores específicos de Axios
+        console.error(`❌ Error en la solicitud a Bybit: ${axiosError.message}`);
+        
+        if (axiosError.response) {
+          // La solicitud fue realizada y el servidor respondió con un código de estado
+          // que cae fuera del rango 2xx
+          console.error(`❌ Respuesta de error: ${JSON.stringify({
+            status: axiosError.response.status,
+            statusText: axiosError.response.statusText,
+            data: axiosError.response.data
+          })}`);
+          
+          throw new HttpException(
+            `Error en la API de Bybit: ${axiosError.response.data?.retMsg || axiosError.message}`,
+            axiosError.response.status || HttpStatus.BAD_REQUEST
+          );
+        } else if (axiosError.request) {
+          // La solicitud fue realizada pero no se recibió respuesta
+          console.error(`❌ No se recibió respuesta de Bybit`);
+          throw new HttpException(
+            'No se pudo conectar con la API de Bybit. Verifique su conexión a internet o inténtelo más tarde.',
+            HttpStatus.SERVICE_UNAVAILABLE
+          );
+        } else {
+          // Algo ocurrió al configurar la solicitud que desencadenó un error
+          throw new HttpException(
+            `Error al configurar la solicitud a Bybit: ${axiosError.message}`,
+            HttpStatus.INTERNAL_SERVER_ERROR
+          );
+        }
       }
     } catch (error) {
       console.error('❌ Error en getSubAccountBalance:', error.message);
-      if (error.response) {
-        console.error(`❌ Respuesta de error: ${JSON.stringify({
-          status: error.response.status,
-          statusText: error.response.statusText,
-          data: error.response.data
-        })}`);
+      
+      // Si ya es un HttpException, lo propagamos
+      if (error instanceof HttpException) {
+        throw error;
       }
       
-      // En caso de error, generamos datos simulados para no interrumpir la experiencia del usuario
-      console.log(`🔹 Generando datos simulados debido a error: ${error.message}`);
-      return this.generateSimulatedAccountData();
+      // Para otros errores, lanzamos un error genérico
+      throw new HttpException(
+        `Error al obtener balance: ${error.message}`, 
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
     }
-  }
-
-  // Método auxiliar para generar datos de cuenta simulados
-  private generateSimulatedAccountData() {
-    // Generar un balance total aleatorio entre 1000 y 50000
-    const totalBalance = 1000 + Math.random() * 49000;
-    
-    // Generar entre 1 y 5 activos aleatorios
-    const numAssets = 1 + Math.floor(Math.random() * 5);
-    const possibleCoins = ['BTC', 'ETH', 'USDT', 'USDC', 'SOL', 'ADA', 'DOT', 'AVAX', 'MATIC'];
-    
-    const assets: Array<{coin: string; walletBalance: number; usdValue: number}> = [];
-    let remainingBalance = totalBalance;
-    
-    for (let i = 0; i < numAssets; i++) {
-      // El último activo toma todo el balance restante
-      const isLast = i === numAssets - 1;
-      
-      // Seleccionar una moneda aleatoria que no esté ya en los activos
-      let coin;
-      do {
-        coin = possibleCoins[Math.floor(Math.random() * possibleCoins.length)];
-      } while (assets.some(a => a.coin === coin));
-      
-      // Determinar el valor USD de este activo
-      const usdValue = isLast 
-        ? remainingBalance 
-        : Math.random() * remainingBalance * 0.7; // Máximo 70% del balance restante
-      
-      remainingBalance -= usdValue;
-      
-      // Para monedas que no son stablecoins, calcular un balance de moneda realista
-      let walletBalance;
-      if (coin === 'USDT' || coin === 'USDC') {
-        walletBalance = usdValue;
-      } else if (coin === 'BTC') {
-        walletBalance = usdValue / 60000; // Aproximadamente $60k por BTC
-      } else if (coin === 'ETH') {
-        walletBalance = usdValue / 3000; // Aproximadamente $3k por ETH
-      } else if (coin === 'SOL') {
-        walletBalance = usdValue / 150; // Aproximadamente $150 por SOL
-      } else {
-        walletBalance = usdValue / (10 + Math.random() * 90); // Precio aleatorio entre $10-$100
-      }
-      
-      assets.push({
-        coin,
-        walletBalance,
-        usdValue
-      });
-    }
-    
-    // Calcular rendimiento simulado entre -10% y +10%
-    const performance = Math.random() * 20 - 10;
-    
-    console.log(`✅ Datos simulados generados: balance=${totalBalance.toFixed(2)}, activos=${numAssets}`);
-    
-    return {
-      balance: totalBalance,
-      assets,
-      performance
-    };
   }
 
   // ✅ Crear una nueva subcuenta

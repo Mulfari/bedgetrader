@@ -78,6 +78,9 @@ export class SubaccountsController {
       const userId = req.user.sub;
       console.log(`🔹 Solicitud de balance para subcuenta: ${id}, usuario: ${userId}`);
       
+      // Verificar token JWT
+      console.log(`🔹 Encabezado Authorization recibido: ${req.headers.authorization?.substring(0, 20)}...`);
+      
       const result = await this.subaccountsService.getSubAccountBalance(id, userId);
       console.log(`✅ Balance obtenido correctamente para subcuenta: ${id}`);
       
