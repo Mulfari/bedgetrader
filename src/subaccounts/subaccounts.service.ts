@@ -98,8 +98,23 @@ export class SubaccountsService {
         .flatMap((wallet: any) => wallet.coin)
         .find((coin: any) => coin.coin === "USDT");
 
+      // Extraer todos los assets
+      const assets = response.data.result.list
+        .flatMap((wallet: any) => wallet.coin)
+        .map((coin: any) => ({
+          coin: coin.coin,
+          walletBalance: parseFloat(coin.walletBalance),
+          usdValue: parseFloat(coin.usdValue)
+        }))
+        .filter((asset: any) => asset.walletBalance > 0);
+
+      // Calcular rendimiento simulado (en un sistema real, esto vendría de datos históricos)
+      const performance = Math.random() * 20 - 10; // Entre -10% y +10%
+
       return {
-        balance: usdtBalance ? usdtBalance.availableToWithdraw : 0,
+        balance: usdtBalance ? parseFloat(usdtBalance.availableToWithdraw) : 0,
+        assets: assets,
+        performance: performance
       };
     } catch (error) {
       console.error('❌ Error en getSubAccountBalance:', error.response?.data || error.message);
