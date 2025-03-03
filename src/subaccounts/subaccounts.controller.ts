@@ -225,4 +225,39 @@ export class SubaccountsController {
       throw new HttpException('Error al eliminar subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
+
+  // ✅ Obtener el historial de balances de una subcuenta
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/balance/history')
+  async getSubAccountBalanceHistory(@Param('id') id: string, @Req() req) {
+    try {
+      console.log(`🔹 Solicitud de historial de balance para subcuenta: ${id}`);
+      
+      // Extraer el ID de usuario del token JWT
+      const userId = req.user.sub;
+      console.log(`🔹 ID de usuario extraído del token: ${userId}`);
+      
+      // Verificar que el ID de usuario no sea undefined
+      if (!userId) {
+        console.error('❌ Error: ID de usuario es undefined en el token JWT');
+        throw new HttpException('ID de usuario no disponible en el token', HttpStatus.UNAUTHORIZED);
+      }
+      
+      // Obtener la subcuenta para verificar si existe
+      const subaccount = await this.subaccountsService.findOne(id, userId);
+      if (!subaccount) {
+        console.error(`❌ Subcuenta ${id} no encontrada para usuario ${userId}`);
+        throw new HttpException('Subcuenta no encontrada', HttpStatus.NOT_FOUND);
+      }
+      
+      // Obtener el historial de balances
+      const history = await this.subaccountsService.getSubAccountBalanceHistory(id, userId);
+      
+      console.log(`✅ Historial de balance obtenido para subcuenta: ${id}`);
+      return history;
+    } catch (error) {
+      console.error(`❌ Error obteniendo historial de balance para subcuenta ${id}:`, error.message);
+      throw error;
+    }
+  }
 }

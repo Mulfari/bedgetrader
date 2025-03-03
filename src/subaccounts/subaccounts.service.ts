@@ -570,4 +570,31 @@ export class SubaccountsService {
       throw new BadRequestException('Error al validar credenciales');
     }
   }
+
+  // ✅ Obtener el historial de balances de una subcuenta
+  async getSubAccountBalanceHistory(id: string, userId: string): Promise<any> {
+    try {
+      console.log(`🔍 Iniciando getSubAccountBalanceHistory para subcuenta ${id}, usuario ${userId}`);
+      
+      const subaccount = await this.findOne(id, userId);
+      
+      if (!subaccount) {
+        console.error(`❌ Subcuenta ${id} no encontrada para usuario ${userId}`);
+        throw new HttpException('Subcuenta no encontrada', HttpStatus.NOT_FOUND);
+      }
+      
+      // Por ahora, devolvemos un historial vacío ya que no tenemos implementada la persistencia del historial
+      // TODO: Implementar la persistencia del historial de balances
+      return {
+        balance: 0,
+        assetsCount: 0,
+        performance: 0,
+        historyLength: 0,
+        history: []
+      };
+    } catch (error) {
+      console.error(`❌ Error en getSubAccountBalanceHistory:`, error.message);
+      throw error;
+    }
+  }
 }
