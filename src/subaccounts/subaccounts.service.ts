@@ -96,7 +96,7 @@ export class SubaccountsService {
     // Verificar que tenemos las credenciales necesarias
     if (!subaccount.apiKey || !subaccount.apiSecret) {
       console.error('❌ Faltan credenciales de API para la subcuenta');
-      throw new Error('Faltan credenciales de API para la subcuenta');
+      throw new Error('Faltan credenciales de API pasra la subcuenta');
     }
     
     // Por ahora solo soportamos Bybit
