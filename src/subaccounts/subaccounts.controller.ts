@@ -24,7 +24,14 @@ export class SubaccountsController {
   @UseGuards(JwtAuthGuard)
   @Get()
   async getSubAccounts(@Request() req): Promise<any[]> {
-    const userId = req.user.id;
+    const userId = req.user.sub;
+    
+    // Verificar que el ID de usuario no sea undefined
+    if (!userId) {
+      console.error('❌ Error: ID de usuario es undefined en el token JWT');
+      throw new HttpException('ID de usuario no disponible en el token', HttpStatus.UNAUTHORIZED);
+    }
+
     const accounts = await this.subaccountsService.getSubAccounts(userId);
     return accounts.map(account => ({
       ...account,
@@ -152,7 +159,14 @@ export class SubaccountsController {
   @UseGuards(JwtAuthGuard)
   @Post()
   async createSubAccount(@Request() req, @Body() body: any) {
-    const userId = req.user.id;
+    const userId = req.user.sub;
+    
+    // Verificar que el ID de usuario no sea undefined
+    if (!userId) {
+      console.error('❌ Error: ID de usuario es undefined en el token JWT');
+      throw new HttpException('ID de usuario no disponible en el token', HttpStatus.UNAUTHORIZED);
+    }
+
     const { exchange, apiKey, secretKey, name, isDemo } = body;
 
     if (!exchange || !apiKey || !secretKey || !name) {
@@ -173,7 +187,14 @@ export class SubaccountsController {
   @UseGuards(JwtAuthGuard)
   @Put(':id')
   async updateSubAccount(@Param('id') id: string, @Request() req, @Body() body: any) {
-    const userId = req.user.id;
+    const userId = req.user.sub;
+    
+    // Verificar que el ID de usuario no sea undefined
+    if (!userId) {
+      console.error('❌ Error: ID de usuario es undefined en el token JWT');
+      throw new HttpException('ID de usuario no disponible en el token', HttpStatus.UNAUTHORIZED);
+    }
+
     const { exchange, apiKey, secretKey, name } = body;
 
     if (!exchange || !apiKey || !secretKey || !name) {
