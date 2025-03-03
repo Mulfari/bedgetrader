@@ -23,7 +23,7 @@ export class AccountDetailsService {
         where: { id: subAccountId, userId },
       });
 
-      if (!account || !account.apiKey || !account.apiSecret) {
+      if (!account || !account.apiKey || !account.secretKey) {
         console.error(`❌ No se encontró una API Key válida para subAccountId: ${subAccountId}`);
         throw new HttpException('Subcuenta sin credenciales API', HttpStatus.NOT_FOUND);
       }
@@ -39,7 +39,7 @@ export class AccountDetailsService {
       // 🔹 Parámetros de autenticación
       const timestamp = Date.now().toString();
       const apiKey = account.apiKey;
-      const apiSecret = account.apiSecret;
+      const secretKey = account.secretKey;
       const recvWindow = "5000";
 
       // 🔹 QueryString requerido por Bybit V5
@@ -48,7 +48,7 @@ export class AccountDetailsService {
 
       // 🔹 Crear el string para firmar
       const signPayload = `${timestamp}${apiKey}${recvWindow}${queryString || ""}`;
-      const signature = crypto.createHmac('sha256', apiSecret).update(signPayload).digest('hex');
+      const signature = crypto.createHmac('sha256', secretKey).update(signPayload).digest('hex');
 
       console.log(`🔍 String para firmar: ${signPayload}`);
       console.log(`🔍 Firma generada: ${signature}`);

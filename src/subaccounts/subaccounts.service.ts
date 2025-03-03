@@ -1,4 +1,4 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import axios from 'axios';
 import { HttpsProxyAgent } from 'https-proxy-agent';
@@ -6,7 +6,8 @@ import * as crypto from 'crypto';
 // Comentamos la importación que causa problemas y usamos axios directamente
 // import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
-import { SubAccount } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { SubAccount } from '../types';
 
 @Injectable()
 export class SubaccountsService {
@@ -46,7 +47,7 @@ export class SubaccountsService {
         throw new HttpException('Subcuenta no encontrada', HttpStatus.NOT_FOUND);
       }
 
-      return { apiKey: subAccount.apiKey, apiSecret: subAccount.apiSecret };
+      return { apiKey: subAccount.apiKey, secretKey: subAccount.secretKey };
     } catch (error) {
       throw new HttpException('Error obteniendo API keys', HttpStatus.INTERNAL_SERVER_ERROR);
     }
@@ -94,7 +95,7 @@ export class SubaccountsService {
     console.log(`🔍 Obteniendo balance para ${subaccount.exchange} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
     
     // Verificar que tenemos las credenciales necesarias
-    if (!subaccount.apiKey || !subaccount.apiSecret) {
+    if (!subaccount.apiKey || !subaccount.secretKey) {
       console.error('❌ Faltan credenciales de API para la subcuenta');
       throw new Error('Faltan credenciales de API pasra la subcuenta');
     }
@@ -120,7 +121,7 @@ export class SubaccountsService {
       // 🔹 Parámetros de autenticación
       const timestamp = Date.now().toString();
       const apiKey = subaccount.apiKey;
-      const apiSecret = subaccount.apiSecret;
+      const secretKey = subaccount.secretKey;
       const recvWindow = "5000";
 
       // 🔹 QueryString requerido por Bybit V5
@@ -130,7 +131,7 @@ export class SubaccountsService {
 
       // 🔹 Crear el string para firmar
       const signPayload = `${timestamp}${apiKey}${recvWindow}${queryString || ""}`;
-      const signature = crypto.createHmac('sha256', apiSecret).update(signPayload).digest('hex');
+      const signature = crypto.createHmac('sha256', secretKey).update(signPayload).digest('hex');
 
       console.log(`🔍 String para firmar: ${signPayload}`);
       console.log(`🔍 Firma generada: ${signature}`);
@@ -320,7 +321,7 @@ export class SubaccountsService {
   }
 
   // ✅ Crear una nueva subcuenta
-  async createSubAccount(userId: string, exchange: string, apiKey: string, apiSecret: string, name: string, isDemo: boolean = false) {
+  async createSubAccount(userId: string, exchange: string, apiKey: string, secretKey: string, name: string, isDemo: boolean = false): Promise<SubAccount> {
     try {
       console.log(`🔹 Creando subcuenta para usuario: ${userId}`);
       console.log(`🔹 Datos: exchange=${exchange}, name=${name}, apiKey=${apiKey.substring(0, 5)}..., isDemo=${isDemo}`);
@@ -340,11 +341,11 @@ export class SubaccountsService {
           userId, 
           exchange, 
           apiKey, 
-          apiSecret, 
+          secretKey, 
           name,
-          isDemo // Usar el valor proporcionado en lugar de hardcodearlo como true
+          isDemo
         },
-        include: { user: true } // Incluir datos del usuario relacionado
+        include: { user: true }
       });
       
       console.log(`✅ Subcuenta creada con éxito: ${newSubAccount.id}`);
@@ -352,10 +353,7 @@ export class SubaccountsService {
     } catch (error) {
       console.error('❌ Error detallado al crear subcuenta:', error);
       
-      // Manejar errores específicos de Prisma
-      if (error.code) {
-        console.error(`❌ Código de error Prisma: ${error.code}`);
-        
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2003') {
           throw new HttpException('Error de clave foránea: el usuario no existe', HttpStatus.BAD_REQUEST);
         }
@@ -369,7 +367,7 @@ export class SubaccountsService {
   }
 
   // ✅ Actualizar una subcuenta existente
-  async updateSubAccount(id: string, userId: string, exchange: string, apiKey: string, apiSecret: string, name: string) {
+  async updateSubAccount(id: string, userId: string, exchange: string, apiKey: string, secretKey: string, name: string): Promise<SubAccount> {
     try {
       const subAccount = await this.prisma.subAccount.findUnique({ where: { id } });
 
@@ -379,7 +377,7 @@ export class SubaccountsService {
 
       return await this.prisma.subAccount.update({
         where: { id },
-        data: { exchange, apiKey, apiSecret, name },
+        data: { exchange, apiKey, secretKey, name },
       });
     } catch (error) {
       throw new HttpException('Error al actualizar subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
@@ -415,7 +413,7 @@ export class SubaccountsService {
       // 🔹 Parámetros de autenticación
       const timestamp = Date.now().toString();
       const apiKey = subaccount.apiKey;
-      const apiSecret = subaccount.apiSecret;
+      const secretKey = subaccount.secretKey;
       const recvWindow = "5000";
 
       // 🔹 QueryString requerido por Bybit V5
@@ -424,7 +422,7 @@ export class SubaccountsService {
 
       // 🔹 Crear el string para firmar
       const signPayload = `${timestamp}${apiKey}${recvWindow}${queryString || ""}`;
-      const signature = crypto.createHmac('sha256', apiSecret).update(signPayload).digest('hex');
+      const signature = crypto.createHmac('sha256', secretKey).update(signPayload).digest('hex');
 
       console.log(`🔍 String para firmar (proxy): ${signPayload}`);
       console.log(`🔍 Firma generada (proxy): ${signature}`);
@@ -527,6 +525,49 @@ export class SubaccountsService {
       
       // Para cuentas reales, propagar el error
       throw error;
+    }
+  }
+
+  async getSubAccountCredentials(id: string): Promise<{ apiKey: string; secretKey: string }> {
+    const subAccount = await this.prisma.subAccount.findUnique({
+      where: { id },
+      select: {
+        apiKey: true,
+        secretKey: true,
+      },
+    });
+
+    if (!subAccount) {
+      throw new NotFoundException('Subcuenta no encontrada');
+    }
+
+    return { apiKey: subAccount.apiKey, secretKey: subAccount.secretKey };
+  }
+
+  async validateSubAccountAccess(subaccount: SubAccount): Promise<boolean> {
+    if (!subaccount.apiKey || !subaccount.secretKey) {
+      throw new BadRequestException('Credenciales de API incompletas');
+    }
+
+    try {
+      // Implementar la lógica de validación aquí
+      return true;
+    } catch (error) {
+      throw new BadRequestException('Error al validar credenciales');
+    }
+  }
+
+  async validateApiCredentials(subaccount: SubAccount): Promise<boolean> {
+    try {
+      // Implementar la lógica de validación aquí
+      const timestamp = Date.now().toString();
+      const signPayload = `${timestamp}${subaccount.apiKey}`;
+      const signature = crypto.createHmac('sha256', subaccount.secretKey).update(signPayload).digest('hex');
+      
+      // Aquí iría la lógica de validación con el exchange
+      return true;
+    } catch (error) {
+      throw new BadRequestException('Error al validar credenciales');
     }
   }
 }
