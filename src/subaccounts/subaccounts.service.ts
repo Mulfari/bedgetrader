@@ -137,10 +137,10 @@ export class SubaccountsService {
 
       // 🔹 Headers actualizados para Bybit V5
       const headers = {
-        'X-BAPI-API-KEY': apiKey,
-        'X-BAPI-TIMESTAMP': timestamp,
-        'X-BAPI-RECV-WINDOW': recvWindow,
-        'X-BAPI-SIGN': signature,
+              'X-BAPI-API-KEY': apiKey,
+              'X-BAPI-TIMESTAMP': timestamp,
+              'X-BAPI-RECV-WINDOW': recvWindow,
+              'X-BAPI-SIGN': signature,
       };
 
       // 🔹 URL de Bybit para obtener el balance
@@ -315,7 +315,7 @@ export class SubaccountsService {
       }
     } catch (error) {
       console.error(`❌ Error en getSubAccountBalance:`, error.message);
-      throw error;
+        throw error;
     }
   }
 
