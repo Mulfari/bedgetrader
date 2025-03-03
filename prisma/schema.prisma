@@ -22,7 +22,7 @@ model SubAccount {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   exchange  String
   apiKey    String
-  apiSecret String
+  secretKey String
   name      String
   isDemo    Boolean  @default(false)
   createdAt DateTime @default(now())
