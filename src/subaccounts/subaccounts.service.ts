@@ -112,118 +112,190 @@ export class SubaccountsService {
 
   // Método para obtener balance de Bybit
   private async getBybitBalance(subaccount: SubAccount): Promise<any> {
-    try {
-      // 🔹 Configurar proxy
-      const proxyAgent = new HttpsProxyAgent(
-        "http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001"
-      );
-
-      // 🔹 Parámetros de autenticación
-      const timestamp = Date.now().toString();
-      const apiKey = subaccount.apiKey;
-      const secretKey = subaccount.secretKey;
-      const recvWindow = "5000";
-
-      // 🔹 QueryString requerido por Bybit V5
-      // Usar el mismo tipo de cuenta UNIFIED para todas las cuentas (reales y demo)
-      const queryParams = { accountType: "UNIFIED" };
-      const queryString = new URLSearchParams(queryParams).toString();
-
-      // 🔹 Crear el string para firmar
-      const signPayload = `${timestamp}${apiKey}${recvWindow}${queryString || ""}`;
-      const signature = crypto.createHmac('sha256', secretKey).update(signPayload).digest('hex');
-
-      console.log(`🔍 String para firmar: ${signPayload}`);
-      console.log(`🔍 Firma generada: ${signature}`);
-
-      // 🔹 Headers actualizados para Bybit V5
-      const headers = {
-              'X-BAPI-API-KEY': apiKey,
-              'X-BAPI-TIMESTAMP': timestamp,
-              'X-BAPI-RECV-WINDOW': recvWindow,
-              'X-BAPI-SIGN': signature,
-      };
-
-      // 🔹 URL de Bybit para obtener el balance
-      // Usar la URL correcta según si es una cuenta demo o real
-      const baseUrl = subaccount.isDemo 
-        ? "https://api-demo.bybit.com"  // URL para cuentas demo (api-demo)
-        : "https://api.bybit.com";      // URL para cuentas reales
-      
-      const url = `${baseUrl}/v5/account/wallet-balance`;
-      
-      console.log(`📡 Enviando solicitud a Bybit (${subaccount.isDemo ? 'DEMO' : 'REAL'}): ${url}`);
-
-      // 🔹 Hacer la solicitud a Bybit con tiempo de espera
-      const axiosConfig = {
-        headers,
-        params: queryParams,
-        httpsAgent: proxyAgent,
-        timeout: 5000, // 🔹 Timeout de 5 segundos para evitar esperas largas
-      };
-
-      const response = await axios.get(url, axiosConfig);
-
-      console.log(`📡 Respuesta de Bybit:`, JSON.stringify(response.data, null, 2));
-
-      if (!response.data || response.data.retCode !== 0) {
-        console.error(`❌ Error en Bybit: ${response.data.retMsg} (Código: ${response.data.retCode})`);
-        throw new Error(`Error en Bybit: ${response.data.retMsg}`);
-      }
-
-      // Procesar la respuesta para extraer el balance total y los activos
-      const result = response.data.result;
-      
-      // Verificar si hay datos en el resultado
-      if (!result || !result.list || result.list.length === 0) {
-        console.error('❌ No se encontraron datos de balance en la respuesta de Bybit');
-        throw new Error('No se encontraron datos de balance en la respuesta de Bybit');
-      }
-      
-      // Obtener el primer elemento de la lista (cuenta UNIFIED)
-      const accountData = result.list[0];
-      
-      // Verificar si hay datos de la cuenta
-      if (!accountData || !accountData.coin || !Array.isArray(accountData.coin)) {
-        console.error('❌ Estructura de datos inesperada en la respuesta de Bybit');
-        throw new Error('Estructura de datos inesperada en la respuesta de Bybit');
-      }
-      
-      // Calcular el balance total sumando los usdValue de todas las monedas
-      let totalBalance = 0;
-      const assets: Array<{coin: string; walletBalance: number; usdValue: number}> = [];
-      
-      // Procesar cada moneda
-      accountData.coin.forEach(coin => {
-        // Verificar si la moneda tiene un valor en USD
-        const usdValue = parseFloat(coin.usdValue || '0');
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 2000; // 2 segundos entre reintentos
+    
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        console.log(`🔄 Intento ${attempt}/${MAX_RETRIES} de obtener balance para subcuenta ${subaccount.id}`);
         
-        // Sumar al balance total
-        totalBalance += usdValue;
+        // 🔹 Configurar proxy
+        const proxyUrl = "http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001";
+        console.log(`🔹 Configurando proxy: ${proxyUrl.replace(/:[^:]*@/, ':****@')}`);
         
-        // Solo incluir monedas con balance positivo
-        if (usdValue > 0 || parseFloat(coin.walletBalance || '0') > 0) {
-          assets.push({
-            coin: coin.coin,
-            walletBalance: parseFloat(coin.walletBalance || '0'),
-            usdValue: usdValue
-          });
+        const proxyAgent = new HttpsProxyAgent(proxyUrl);
+
+        // 🔹 Parámetros de autenticación
+        const timestamp = Date.now().toString();
+        const apiKey = subaccount.apiKey;
+        const secretKey = subaccount.secretKey;
+        const recvWindow = "5000";
+
+        console.log(`🔹 Preparando autenticación:
+          - Timestamp: ${timestamp}
+          - API Key: ${apiKey.substring(0, 5)}...
+          - RecvWindow: ${recvWindow}`);
+
+        // 🔹 QueryString requerido por Bybit V5
+        const queryParams = { accountType: "UNIFIED" };
+        const queryString = new URLSearchParams(queryParams).toString();
+
+        // 🔹 Crear el string para firmar
+        const signPayload = `${timestamp}${apiKey}${recvWindow}${queryString || ""}`;
+        const signature = crypto.createHmac('sha256', secretKey).update(signPayload).digest('hex');
+
+        console.log(`🔹 Generación de firma:
+          - Sign Payload: ${signPayload}
+          - Signature: ${signature}`);
+
+        // 🔹 Headers actualizados para Bybit V5
+        const headers = {
+          'X-BAPI-API-KEY': apiKey,
+          'X-BAPI-TIMESTAMP': timestamp,
+          'X-BAPI-RECV-WINDOW': recvWindow,
+          'X-BAPI-SIGN': signature,
+        };
+
+        console.log('🔹 Headers configurados:', JSON.stringify(headers, null, 2));
+
+        // 🔹 URL de Bybit para obtener el balance
+        const baseUrl = subaccount.isDemo 
+          ? "https://api-demo.bybit.com"
+          : "https://api.bybit.com";
+        
+        const url = `${baseUrl}/v5/account/wallet-balance`;
+        
+        console.log(`📡 Enviando solicitud a Bybit:
+          - URL: ${url}
+          - Modo: ${subaccount.isDemo ? 'DEMO' : 'REAL'}
+          - Método: GET
+          - Params: ${JSON.stringify(queryParams)}`);
+
+        // 🔹 Hacer la solicitud a Bybit con tiempo de espera
+        const axiosConfig = {
+          headers,
+          params: queryParams,
+          httpsAgent: proxyAgent,
+          timeout: 10000, // Aumentado a 10 segundos
+        };
+
+        console.log('📡 Configuración de axios:', JSON.stringify({
+          ...axiosConfig,
+          httpsAgent: 'ProxyAgent'
+        }, null, 2));
+
+        const response = await axios.get(url, axiosConfig);
+        
+        // Si llegamos aquí, la solicitud fue exitosa
+        console.log(`✅ Respuesta recibida de Bybit en el intento ${attempt}:
+          - Status: ${response.status}
+          - Status Text: ${response.statusText}
+          - Data: ${JSON.stringify(response.data, null, 2)}`);
+
+        if (!response.data || response.data.retCode !== 0) {
+          const error = new Error(`Error en Bybit: ${response.data?.retMsg}`);
+          error['bybitCode'] = response.data?.retCode;
+          error['bybitMsg'] = response.data?.retMsg;
+          throw error;
         }
-      });
-      
-      console.log(`✅ Balance total calculado: ${totalBalance}`);
-      console.log(`✅ Activos procesados: ${assets.length}`);
-      
-      return {
-        balance: totalBalance,
-        assets,
-        performance: 0, // Bybit no proporciona rendimiento directamente
-        isSimulated: false,
-        isDemo: subaccount.isDemo // Indicar si es una cuenta demo
-      };
-    } catch (error) {
-      console.error(`❌ Error al obtener balance de Bybit:`, error.message);
-      throw error;
+
+        // Procesar la respuesta para extraer el balance total y los activos
+        const result = response.data.result;
+        
+        // Verificar si hay datos en el resultado
+        if (!result || !result.list || result.list.length === 0) {
+          console.error('❌ No se encontraron datos de balance en la respuesta de Bybit');
+          throw new Error('No se encontraron datos de balance en la respuesta de Bybit');
+        }
+        
+        // Obtener el primer elemento de la lista (cuenta UNIFIED)
+        const accountData = result.list[0];
+        
+        // Verificar si hay datos de la cuenta
+        if (!accountData || !accountData.coin || !Array.isArray(accountData.coin)) {
+          console.error('❌ Estructura de datos inesperada en la respuesta de Bybit');
+          throw new Error('Estructura de datos inesperada en la respuesta de Bybit');
+        }
+        
+        // Calcular el balance total sumando los usdValue de todas las monedas
+        let totalBalance = 0;
+        const assets: Array<{coin: string; walletBalance: number; usdValue: number}> = [];
+        
+        // Procesar cada moneda
+        accountData.coin.forEach(coin => {
+          // Verificar si la moneda tiene un valor en USD
+          const usdValue = parseFloat(coin.usdValue || '0');
+          
+          // Sumar al balance total
+          totalBalance += usdValue;
+          
+          // Solo incluir monedas con balance positivo
+          if (usdValue > 0 || parseFloat(coin.walletBalance || '0') > 0) {
+            assets.push({
+              coin: coin.coin,
+              walletBalance: parseFloat(coin.walletBalance || '0'),
+              usdValue: usdValue
+            });
+          }
+        });
+        
+        console.log(`✅ Balance total calculado: ${totalBalance}`);
+        console.log(`✅ Activos procesados: ${assets.length}`);
+        
+        return {
+          balance: totalBalance,
+          assets,
+          performance: 0,
+          isSimulated: false,
+          isDemo: subaccount.isDemo,
+          lastUpdate: Date.now()
+        };
+      } catch (error) {
+        console.error(`❌ Error en intento ${attempt}/${MAX_RETRIES}:`, {
+          message: error.message,
+          bybitCode: error.bybitCode,
+          bybitMsg: error.bybitMsg,
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data
+        });
+
+        // Si es el último intento, lanzar el error
+        if (attempt === MAX_RETRIES) {
+          // Si es un error de autenticación o permisos, no tiene sentido reintentar
+          if (error.response?.status === 401 || error.response?.status === 403 || 
+              error.bybitCode === 10003 || error.bybitCode === 10004) {
+            throw new HttpException({
+              message: 'Error de autenticación con Bybit',
+              details: error.bybitMsg || error.message,
+              code: error.bybitCode,
+              status: error.response?.status
+            }, HttpStatus.UNAUTHORIZED);
+          }
+          
+          // Si es un error de rate limit, informar específicamente
+          if (error.response?.status === 429 || error.bybitCode === 10006) {
+            throw new HttpException({
+              message: 'Demasiadas solicitudes a Bybit',
+              details: 'Por favor, espera unos minutos antes de intentar nuevamente',
+              code: error.bybitCode,
+              status: 429
+            }, HttpStatus.TOO_MANY_REQUESTS);
+          }
+          
+          // Para otros errores
+          throw new HttpException({
+            message: 'Error al obtener balance de Bybit',
+            details: error.bybitMsg || error.message,
+            code: error.bybitCode,
+            status: error.response?.status || 500
+          }, HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+
+        // Esperar antes del siguiente intento
+        console.log(`⏳ Esperando ${RETRY_DELAY/1000} segundos antes del siguiente intento...`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      }
     }
   }
 
