@@ -6,7 +6,7 @@ import { MarketTicker, MarketWebSocketMessage } from './interfaces/market.interf
 export class MarketService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MarketService.name);
   private ws: WebSocket;
-  private readonly WS_URL = 'wss://stream.bybit.com/v5/public/spot';
+  private readonly WS_URL = 'wss://stream.bybit.com/v5/public/linear';
   private marketData: Map<string, MarketTicker> = new Map();
   private reconnectAttempts = 0;
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
@@ -110,8 +110,8 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       op: 'subscribe',
       args: [
         ...pairs.map(pair => `tickers.${pair}`),
-        ...pairs.map(pair => `index.${pair}`),
-        ...pairs.map(pair => `funding.${pair}`)
+        ...pairs.map(pair => `orderbook.1.${pair}`),
+        ...pairs.map(pair => `publicTrade.${pair}`)
       ]
     };
     this.ws.send(JSON.stringify(subscribeMessage));
@@ -147,37 +147,32 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
 
       let updatedData = { ...currentData };
 
-      switch (type) {
-        case 'tickers':
+      if (message.data) {
+        // Manejar diferentes tipos de datos
+        if ('lastPrice' in message.data) {
           updatedData = {
             ...updatedData,
-            price: this.formatPrice(message.data?.lastPrice),
-            volume: this.formatNumber(message.data?.volume24h),
-            volumeUSDT: this.formatNumber(message.data?.turnover24h),
-            change: this.formatPercentage(message.data?.price24hPcnt),
-            high24h: this.formatPrice(message.data?.highPrice24h),
-            low24h: this.formatPrice(message.data?.lowPrice24h),
+            price: this.formatPrice(message.data.lastPrice),
+            indexPrice: this.formatPrice(message.data.indexPrice || message.data.markPrice),
+            volume: this.formatNumber(message.data.volume24h),
+            volumeUSDT: this.formatNumber(message.data.turnover24h),
+            change: this.formatPercentage(message.data.price24hPcnt),
+            high24h: this.formatPrice(message.data.highPrice24h),
+            low24h: this.formatPrice(message.data.lowPrice24h),
+            openInterest: this.formatNumber(message.data.openInterest || 0),
+            fundingRate: this.formatPercentage(message.data.fundingRate || 0),
+            nextFundingTime: message.data.nextFundingTime || updatedData.nextFundingTime,
           };
-          break;
-        case 'index':
-          updatedData = {
-            ...updatedData,
-            indexPrice: this.formatPrice(message.data?.indexPrice),
-          };
-          break;
-        case 'funding':
-          updatedData = {
-            ...updatedData,
-            fundingRate: this.formatPercentage(message.data?.fundingRate),
-            nextFundingTime: message.data?.nextFundingTime || updatedData.nextFundingTime,
-          };
-          break;
+        }
       }
 
       this.marketData.set(symbol, {
         ...updatedData,
         symbol: baseSymbol,
       });
+
+      // Debug log
+      this.logger.debug(`Updated market data for ${symbol}:`, updatedData);
     } catch (error) {
       this.logger.error('Error processing WebSocket message:', error);
     }
@@ -201,10 +196,10 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     const num = typeof price === 'string' ? parseFloat(price) : price;
     if (isNaN(num)) return '0.00';
 
-    // Para precios menores a 1, usar más decimales
-    if (num < 1) return num.toFixed(6);
-    if (num < 100) return num.toFixed(4);
-    return num.toFixed(2);
+    if (num >= 1000) return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (num >= 100) return num.toFixed(2);
+    if (num >= 1) return num.toFixed(4);
+    return num.toFixed(6);
   }
 
   private formatPercentage(value: string | number): string {
