@@ -79,17 +79,36 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   private subscribeToTickers() {
+    const pairs = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT'];
     const subscribeMessage = {
       op: 'subscribe',
-      args: ['tickers.BTCUSDT', 'tickers.ETHUSDT', 'tickers.SOLUSDT', 'tickers.XRPUSDT']
+      args: [
+        ...pairs.map(pair => `tickers.${pair}`),
+        ...pairs.map(pair => `index.${pair}`),
+        ...pairs.map(pair => `funding.${pair}`)
+      ]
     };
     this.ws.send(JSON.stringify(subscribeMessage));
   }
 
   private handleWebSocketMessage(message: MarketWebSocketMessage) {
-    if (message.topic?.startsWith('tickers.')) {
-      const ticker = this.transformTickerData(message.data);
-      this.marketData.set(ticker.symbol, ticker);
+    try {
+      if (message.topic?.startsWith('tickers.') || 
+          message.topic?.startsWith('index.') || 
+          message.topic?.startsWith('funding.')) {
+        
+        const symbol = message.topic.split('.')[1];
+        const currentData = this.marketData.get(symbol) || {};
+        
+        const updatedData = {
+          ...currentData,
+          ...this.transformTickerData({ ...message.data, symbol })
+        };
+        
+        this.marketData.set(symbol, updatedData);
+      }
+    } catch (error) {
+      this.logger.error('Error processing WebSocket message:', error);
     }
   }
 
@@ -127,18 +146,25 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
 
   private transformTickerData(data: any): MarketTicker {
     const price = this.formatPrice(data.lastPrice);
+    const indexPrice = this.formatPrice(data.indexPrice);
     const volume = this.formatNumber(data.volume24h);
     const volumeUSDT = this.formatNumber(data.turnover24h);
     const change = this.formatPercentage(data.price24hPcnt);
+    const fundingRate = this.formatPercentage(data.fundingRate || 0);
+    const nextFundingTime = data.nextFundingTime || Date.now() + 8 * 60 * 60 * 1000; // 8 horas por defecto
 
     return {
       symbol: data.symbol.replace('USDT', ''),
       price,
+      indexPrice,
       change,
       volume,
       high24h: this.formatPrice(data.highPrice24h),
       low24h: this.formatPrice(data.lowPrice24h),
       volumeUSDT,
+      openInterest: this.formatNumber(data.openInterest || 0),
+      fundingRate,
+      nextFundingTime,
       leverage: '10x',
       favorite: false,
       interestRate: {
