@@ -12,7 +12,33 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
   private readonly RECONNECT_INTERVAL = 5000;
 
+  private initializeMarketData() {
+    const initialPairs = ['BTC', 'ETH', 'SOL', 'XRP'];
+    initialPairs.forEach(symbol => {
+      this.marketData.set(`${symbol}USDT`, {
+        symbol,
+        price: '0.00',
+        indexPrice: '0.00',
+        change: '0.00%',
+        volume: '0',
+        high24h: '0.00',
+        low24h: '0.00',
+        volumeUSDT: '0',
+        openInterest: '0',
+        fundingRate: '0.00%',
+        nextFundingTime: Date.now() + 8 * 60 * 60 * 1000,
+        leverage: '10x',
+        favorite: false,
+        interestRate: {
+          long: '0.00%',
+          short: '0.00%'
+        }
+      });
+    });
+  }
+
   async onModuleInit() {
+    this.initializeMarketData();
     this.connectWebSocket();
   }
 
@@ -93,20 +119,65 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
 
   private handleWebSocketMessage(message: MarketWebSocketMessage) {
     try {
-      if (message.topic?.startsWith('tickers.') || 
-          message.topic?.startsWith('index.') || 
-          message.topic?.startsWith('funding.')) {
-        
-        const symbol = message.topic.split('.')[1];
-        const currentData = this.marketData.get(symbol) || {};
-        
-        const updatedData = {
-          ...currentData,
-          ...this.transformTickerData({ ...message.data, symbol })
-        };
-        
-        this.marketData.set(symbol, updatedData);
+      if (!message.topic) return;
+
+      const [type, symbol] = message.topic.split('.');
+      if (!symbol) return;
+
+      const baseSymbol = symbol.replace('USDT', '');
+      const currentData = this.marketData.get(symbol) || this.marketData.get(baseSymbol) || {
+        symbol: baseSymbol,
+        price: '0.00',
+        indexPrice: '0.00',
+        change: '0.00%',
+        volume: '0',
+        high24h: '0.00',
+        low24h: '0.00',
+        volumeUSDT: '0',
+        openInterest: '0',
+        fundingRate: '0.00%',
+        nextFundingTime: Date.now() + 8 * 60 * 60 * 1000,
+        leverage: '10x',
+        favorite: false,
+        interestRate: {
+          long: '0.00%',
+          short: '0.00%'
+        }
+      };
+
+      let updatedData = { ...currentData };
+
+      switch (type) {
+        case 'tickers':
+          updatedData = {
+            ...updatedData,
+            price: this.formatPrice(message.data?.lastPrice),
+            volume: this.formatNumber(message.data?.volume24h),
+            volumeUSDT: this.formatNumber(message.data?.turnover24h),
+            change: this.formatPercentage(message.data?.price24hPcnt),
+            high24h: this.formatPrice(message.data?.highPrice24h),
+            low24h: this.formatPrice(message.data?.lowPrice24h),
+          };
+          break;
+        case 'index':
+          updatedData = {
+            ...updatedData,
+            indexPrice: this.formatPrice(message.data?.indexPrice),
+          };
+          break;
+        case 'funding':
+          updatedData = {
+            ...updatedData,
+            fundingRate: this.formatPercentage(message.data?.fundingRate),
+            nextFundingTime: message.data?.nextFundingTime || updatedData.nextFundingTime,
+          };
+          break;
       }
+
+      this.marketData.set(symbol, {
+        ...updatedData,
+        symbol: baseSymbol,
+      });
     } catch (error) {
       this.logger.error('Error processing WebSocket message:', error);
     }
