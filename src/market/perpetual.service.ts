@@ -44,6 +44,30 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
     try {
       this.logger.log('Initializing PerpetualMarketService...');
       
+      // Inicializar los tickers con valores por defecto
+      this.symbols.forEach(symbol => {
+        this.perpetualTickers.set(symbol, {
+          symbol,
+          price: '0.00',
+          indexPrice: '0.00',
+          change: '0.00%',
+          volume: '0',
+          high24h: '0.00',
+          low24h: '0.00',
+          volumeUSDT: '0',
+          marketType: 'perpetual',
+          openInterest: '0 ' + symbol,
+          fundingRate: '0.00%',
+          nextFundingTime: Date.now() + 8 * 60 * 60 * 1000,
+          leverage: '10x',
+          markPrice: '0.00',
+          lastPrice: '0.00',
+          bidPrice: '0.00',
+          askPrice: '0.00',
+          favorite: false
+        });
+      });
+      
       // Cargar datos iniciales
       await this.fetchInitialData();
       
@@ -70,18 +94,30 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         this.reconnectAttempts = 0;
         this.logger.log('WebSocket connection established for perpetual markets');
         
-        // Suscribirse a los tickers y funding de futuros
+        // Suscribirse solo a los tickers para simplificar
         const symbols = this.symbols.map(symbol => `${symbol}USDT`);
         const subscribeMsg = {
+          req_id: "perpetual_subscription",
           op: 'subscribe',
-          args: [
-            ...symbols.map(symbol => `tickers.${symbol}`),
-            ...symbols.map(symbol => `funding.${symbol}`)
-          ]
+          args: symbols.map(symbol => `tickers.${symbol}`)
         };
         
         this.ws.send(JSON.stringify(subscribeMsg));
-        this.logger.log(`Subscribed to perpetual markets: ${JSON.stringify(subscribeMsg)}`);
+        this.logger.log(`Subscribed to perpetual tickers: ${JSON.stringify(subscribeMsg)}`);
+        
+        // Configurar heartbeat cada 20 segundos para mantener la conexión activa
+        const heartbeatInterval = setInterval(() => {
+          if (this.ws && this.wsConnected) {
+            const pingMsg = {
+              req_id: "perpetual_heartbeat",
+              op: "ping"
+            };
+            this.ws.send(JSON.stringify(pingMsg));
+            this.logger.debug("Sent heartbeat ping to WebSocket");
+          } else {
+            clearInterval(heartbeatInterval);
+          }
+        }, 20000);
         
         // Cargar datos iniciales después de conectar
         this.fetchInitialData()
@@ -95,21 +131,32 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         try {
           const message = JSON.parse(data.toString());
           
-          // Imprimir mensajes para diagnóstico
-          this.logger.debug(`WebSocket message: ${data.toString().substring(0, 200)}...`);
+          // Manejar respuesta de ping (pong)
+          if (message.op === "ping" || message.ret_msg === "pong") {
+            this.logger.debug(`Received pong: ${JSON.stringify(message)}`);
+            return;
+          }
           
-          // Manejar mensajes de suscripción
-          if (message.op === 'subscribe') {
+          // Manejar respuesta de suscripción
+          if (message.op === "subscribe") {
             this.logger.log(`Subscription response: ${JSON.stringify(message)}`);
             return;
           }
           
+          // Imprimir el mensaje completo para diagnóstico
+          this.logger.log(`Received WebSocket message: ${JSON.stringify(message)}`);
+          
           // Ignorar mensajes que no son de datos
           if (!message.topic) return;
+          
+          // Imprimir el topic para diagnóstico
+          this.logger.log(`Message topic: ${message.topic}`);
           
           const [msgType, ...rest] = message.topic.split('.');
           const symbolWithUsdt = rest.join('.');
           const symbol = symbolWithUsdt.replace('USDT', '');
+          
+          this.logger.log(`Extracted symbol: ${symbol} from ${symbolWithUsdt}`);
           
           // Verificar que el símbolo sea válido
           if (!this.symbols.includes(symbol)) {
@@ -126,8 +173,15 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
           
           // Procesar según el tipo de mensaje
           if (msgType === 'tickers' && message.data) {
-            const ticker = message.data;
+            // Verificar si message.data es un array
+            const ticker = Array.isArray(message.data) ? message.data[0] : message.data;
             this.logger.log(`Ticker data for ${symbol}: ${JSON.stringify(ticker)}`);
+            
+            // Verificar si ticker tiene los campos necesarios
+            if (!ticker || !ticker.lastPrice) {
+              this.logger.warn(`Invalid ticker data for ${symbol}: ${JSON.stringify(ticker)}`);
+              return;
+            }
             
             // Actualizar propiedades del ticker
             const price = parseFloat(ticker.lastPrice || existingTicker.price || '0');
@@ -152,26 +206,6 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
             // Actualizar el ticker en el mapa
             this.perpetualTickers.set(symbol, updatedTicker);
             this.logger.log(`Updated ticker for ${symbol} from WebSocket: price=${updatedTicker.price}, change=${updatedTicker.change}`);
-          } else if (msgType === 'funding' && message.data) {
-            const funding = message.data;
-            this.logger.log(`Funding data for ${symbol}: ${JSON.stringify(funding)}`);
-            
-            // Actualizar propiedades de funding
-            const fundingRate = parseFloat(funding.fundingRate || '0');
-            const fundingRatePercent = fundingRate * 100;
-            const nextFundingTime = funding.nextFundingTime 
-              ? new Date(funding.nextFundingTime).getTime() 
-              : existingTicker.nextFundingTime;
-            
-            const updatedTicker = {
-              ...existingTicker,
-              fundingRate: `${fundingRatePercent.toFixed(4)}%`,
-              nextFundingTime
-            };
-            
-            // Actualizar el ticker en el mapa
-            this.perpetualTickers.set(symbol, updatedTicker);
-            this.logger.log(`Updated funding for ${symbol} from WebSocket: fundingRate=${updatedTicker.fundingRate}`);
           }
         } catch (error) {
           this.logger.error(`Error processing WebSocket message: ${error.message}`);
@@ -214,8 +248,26 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
 
   private closeWebSocket() {
     if (this.ws) {
+      try {
+        // Enviar mensaje de unsubscribe antes de cerrar
+        const symbols = this.symbols.map(symbol => `${symbol}USDT`);
+        const unsubscribeMsg = {
+          req_id: "perpetual_unsubscription",
+          op: 'unsubscribe',
+          args: symbols.map(symbol => `tickers.${symbol}`)
+        };
+        
+        this.ws.send(JSON.stringify(unsubscribeMsg));
+        this.logger.log('Sent unsubscribe message before closing WebSocket');
+      } catch (error) {
+        this.logger.error(`Error sending unsubscribe message: ${error.message}`);
+      }
+      
+      // Cerrar la conexión
       this.ws.terminate();
       this.ws = null;
+      this.wsConnected = false;
+      this.logger.log('WebSocket connection closed');
     }
     
     if (this.reconnectTimeout) {
@@ -242,16 +294,39 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
     try {
       this.logger.log('Fetching initial perpetual market data from Bybit API...');
       
-      // Usar un enfoque diferente para obtener los datos
+      // Obtener todos los tickers en una sola llamada
       const allTickersResponse = await axios.get('https://api.bybit.com/v5/market/tickers', {
         params: {
           category: 'linear'
         }
       });
       
-      this.logger.log(`All tickers response: ${JSON.stringify(allTickersResponse.data)}`);
+      // Verificar si la respuesta es válida
+      if (allTickersResponse.data?.retCode !== 0) {
+        this.logger.error(`Error from Bybit API: ${allTickersResponse.data?.retMsg || 'Unknown error'}`);
+        return;
+      }
       
-      if (allTickersResponse.data?.result?.list) {
+      // Imprimir la estructura de la respuesta para diagnóstico
+      if (allTickersResponse.data?.result) {
+        this.logger.log(`Response structure: ${JSON.stringify({
+          retCode: allTickersResponse.data.retCode,
+          retMsg: allTickersResponse.data.retMsg,
+          result: {
+            category: allTickersResponse.data.result.category,
+            list: Array.isArray(allTickersResponse.data.result.list) 
+              ? `Array with ${allTickersResponse.data.result.list.length} items` 
+              : typeof allTickersResponse.data.result.list
+          }
+        })}`);
+        
+        // Imprimir el primer ticker para diagnóstico
+        if (Array.isArray(allTickersResponse.data.result.list) && allTickersResponse.data.result.list.length > 0) {
+          this.logger.log(`Sample ticker: ${JSON.stringify(allTickersResponse.data.result.list[0])}`);
+        }
+      }
+      
+      if (allTickersResponse.data?.result?.list && Array.isArray(allTickersResponse.data.result.list)) {
         const allTickers = allTickersResponse.data.result.list;
         
         // Procesar cada símbolo
@@ -271,6 +346,30 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
                   limit: 1
                 }
               });
+              
+              // Verificar si la respuesta de funding es válida
+              if (fundingResponse.data?.retCode !== 0) {
+                this.logger.error(`Error from Bybit API (funding): ${fundingResponse.data?.retMsg || 'Unknown error'}`);
+              }
+              
+              // Imprimir la estructura de la respuesta de funding para diagnóstico
+              if (fundingResponse.data?.result) {
+                this.logger.log(`Funding response structure: ${JSON.stringify({
+                  retCode: fundingResponse.data.retCode,
+                  retMsg: fundingResponse.data.retMsg,
+                  result: {
+                    category: fundingResponse.data.result.category,
+                    list: Array.isArray(fundingResponse.data.result.list) 
+                      ? `Array with ${fundingResponse.data.result.list.length} items` 
+                      : typeof fundingResponse.data.result.list
+                  }
+                })}`);
+                
+                // Imprimir el primer item de funding para diagnóstico
+                if (Array.isArray(fundingResponse.data.result.list) && fundingResponse.data.result.list.length > 0) {
+                  this.logger.log(`Sample funding: ${JSON.stringify(fundingResponse.data.result.list[0])}`);
+                }
+              }
               
               const funding = fundingResponse.data?.result?.list?.[0] || {};
               
@@ -318,7 +417,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
               this.perpetualTickers.set(symbol, updatedTicker);
               
               // Imprimir el ticker actualizado para diagnóstico
-              this.logger.log(`Updated ticker for ${symbol}: ${JSON.stringify(updatedTicker)}`);
+              this.logger.log(`Updated ticker for ${symbol}: price=${updatedTicker.price}, change=${updatedTicker.change}`);
             } else {
               this.logger.warn(`No ticker found for ${symbol}USDT in the response`);
             }
