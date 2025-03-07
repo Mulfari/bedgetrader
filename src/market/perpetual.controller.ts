@@ -16,22 +16,7 @@ export class PerpetualMarketController {
     await this.perpetualMarketService.fetchInitialData();
     
     const tickers = this.perpetualMarketService.getPerpetualTickers();
-    this.logger.log(`Returning ${tickers.length} perpetual tickers: ${JSON.stringify(tickers)}`);
-    
-    // Verificar que los datos tengan la estructura correcta
-    if (tickers.length > 0) {
-      const firstTicker = tickers[0];
-      this.logger.debug(`Sample ticker data: ${JSON.stringify(firstTicker)}`);
-      
-      // Verificar propiedades críticas
-      if (!firstTicker.openInterest || !firstTicker.fundingRate || !firstTicker.nextFundingTime) {
-        this.logger.warn(`Missing critical properties in ticker: ${JSON.stringify({
-          openInterest: firstTicker.openInterest,
-          fundingRate: firstTicker.fundingRate,
-          nextFundingTime: firstTicker.nextFundingTime
-        })}`);
-      }
-    }
+    this.logger.log(`Returning ${tickers.length} perpetual tickers`);
     
     return tickers;
   }
@@ -45,16 +30,7 @@ export class PerpetualMarketController {
     
     const ticker = this.perpetualMarketService.getPerpetualTicker(symbol);
     if (ticker) {
-      this.logger.log(`Returning perpetual ticker for ${symbol}: ${JSON.stringify(ticker)}`);
-      
-      // Verificar propiedades críticas
-      if (!ticker.openInterest || !ticker.fundingRate || !ticker.nextFundingTime) {
-        this.logger.warn(`Missing critical properties in ticker ${symbol}: ${JSON.stringify({
-          openInterest: ticker.openInterest,
-          fundingRate: ticker.fundingRate,
-          nextFundingTime: ticker.nextFundingTime
-        })}`);
-      }
+      this.logger.log(`Returning perpetual ticker for ${symbol}`);
     } else {
       this.logger.warn(`Perpetual ticker not found for ${symbol}`);
     }
@@ -101,7 +77,6 @@ export class PerpetualMarketController {
       }
     };
     
-    this.logger.log(`Returning service status: ${JSON.stringify(status)}`);
     return status;
   }
 } 
