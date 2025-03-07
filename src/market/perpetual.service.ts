@@ -72,12 +72,16 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
       // Cargar datos iniciales
       await this.fetchInitialData();
       
+      // Actualizar específicamente los funding rates
+      this.logger.log('Actualizando funding rates iniciales...');
+      await this.updateFundingRates();
+      
       // Conectar WebSocket
       this.connectWebSocket();
       
       // Configurar actualización periódica del funding rate (cada 5 minutos)
       this.fundingUpdateInterval = setInterval(() => {
-        this.logger.log('Actualizando datos de funding rate...');
+        this.logger.log('Actualizando datos de funding rate periódicamente...');
         this.updateFundingRates()
           .then(() => {
             this.logger.log('Funding rates updated successfully');
@@ -449,9 +453,6 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         this.logger.error('Invalid response format from Bybit API');
       }
       
-      // Actualizar los funding rates después de procesar los tickers básicos
-      await this.updateFundingRates();
-      
       this.logger.log('Initial perpetual market data fetched successfully');
     } catch (error) {
       this.logger.error(`Error fetching initial perpetual market data: ${error.message}`);
@@ -503,7 +504,21 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
           continue;
         }
         
+        // Imprimir la respuesta completa para diagnóstico
+        this.logger.log(`Funding response for ${symbol}: ${JSON.stringify(fundingResponse.data)}`);
+        
         const funding = fundingResponse.data?.result?.list?.[0] || {};
+        
+        // Imprimir el objeto funding para diagnóstico
+        this.logger.log(`Funding data for ${symbol}: ${JSON.stringify(funding)}`);
+        
+        // Verificar si tenemos datos de funding
+        if (!funding || !funding.fundingRate) {
+          this.logger.warn(`No funding data available for ${symbol}`);
+          continue;
+        }
+        
+        // Convertir el funding rate a porcentaje (multiplicar por 100)
         const fundingRate = parseFloat(funding.fundingRate || '0') * 100;
         
         // Asegurar que se guarda correctamente
@@ -533,15 +548,20 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         // Obtener el ticker existente
         const existingTicker = this.perpetualTickers.get(symbol);
         if (existingTicker) {
-          // Actualizar solo el funding rate y nextFundingTime
+          // Crear un nuevo objeto ticker con el funding rate actualizado
           const updatedTicker = {
             ...existingTicker,
             fundingRate: `${fundingRate.toFixed(4)}%`,
             nextFundingTime
           };
           
+          // Actualizar el ticker en el mapa
           this.perpetualTickers.set(symbol, updatedTicker);
-          this.logger.log(`Updated funding rate for ${symbol}: ${fundingRate.toFixed(4)}%`);
+          
+          // Imprimir el ticker actualizado para diagnóstico
+          this.logger.log(`Updated funding rate for ${symbol}: ${updatedTicker.fundingRate}, next funding time: ${new Date(updatedTicker.nextFundingTime).toISOString()}`);
+        } else {
+          this.logger.warn(`No ticker found for ${symbol} to update funding rate`);
         }
       } catch (error) {
         this.logger.error(`Error updating funding rate for ${symbol}: ${error.message}`);
