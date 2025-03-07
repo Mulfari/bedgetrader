@@ -100,23 +100,23 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
             case 'tickers':
               if (message.data) {
                 const ticker = message.data;
-                const price = parseFloat(ticker.lastPrice);
-                const changePercent = parseFloat(ticker.price24hPcnt) * 100;
+                const price = parseFloat(ticker.lastPrice || '0');
+                const changePercent = parseFloat(ticker.price24hPcnt || '0') * 100;
                 
                 updatedTicker = {
                   ...updatedTicker,
                   price: price.toFixed(2),
                   lastPrice: price.toFixed(2),
-                  indexPrice: parseFloat(ticker.indexPrice).toFixed(2),
-                  markPrice: parseFloat(ticker.markPrice).toFixed(2),
+                  indexPrice: parseFloat(ticker.indexPrice || ticker.lastPrice || '0').toFixed(2),
+                  markPrice: parseFloat(ticker.markPrice || ticker.lastPrice || '0').toFixed(2),
                   change: `${changePercent.toFixed(2)}%`,
-                  volume: parseFloat(ticker.volume24h).toFixed(2),
-                  high24h: parseFloat(ticker.highPrice24h).toFixed(2),
-                  low24h: parseFloat(ticker.lowPrice24h).toFixed(2),
-                  volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h)),
-                  openInterest: this.formatVolume(parseFloat(ticker.openInterest)),
-                  bidPrice: parseFloat(ticker.bid1Price).toFixed(2),
-                  askPrice: parseFloat(ticker.ask1Price).toFixed(2)
+                  volume: parseFloat(ticker.volume24h || '0').toFixed(2),
+                  high24h: parseFloat(ticker.highPrice24h || '0').toFixed(2),
+                  low24h: parseFloat(ticker.lowPrice24h || '0').toFixed(2),
+                  volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h || '0')),
+                  openInterest: this.formatVolume(parseFloat(ticker.openInterest || '0')),
+                  bidPrice: parseFloat(ticker.bid1Price || '0').toFixed(2),
+                  askPrice: parseFloat(ticker.ask1Price || '0').toFixed(2)
                 };
                 
                 this.logger.debug(`Updated ticker for ${symbol}: ${JSON.stringify(updatedTicker)}`);
@@ -218,36 +218,32 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
     try {
       this.logger.log('Fetching initial perpetual market data from Bybit API...');
       
-      // Obtener datos de la API de Bybit para cada símbolo
       for (const symbol of this.symbols) {
         try {
           this.logger.debug(`Fetching data for ${symbol}USDT...`);
           
-          // Obtener datos del ticker
-          const tickerResponse = await axios.get(`https://api.bybit.com/v5/market/tickers`, {
-            params: {
-              category: 'linear',
-              symbol: `${symbol}USDT`
-            }
-          });
-          
-          // Obtener datos de funding
-          const fundingResponse = await axios.get(`https://api.bybit.com/v5/market/funding/history`, {
-            params: {
-              category: 'linear',
-              symbol: `${symbol}USDT`,
-              limit: 1
-            }
-          });
-          
-          // Obtener datos del orderbook
-          const orderbookResponse = await axios.get(`https://api.bybit.com/v5/market/orderbook`, {
-            params: {
-              category: 'linear',
-              symbol: `${symbol}USDT`,
-              limit: 1
-            }
-          });
+          const [tickerResponse, fundingResponse, orderbookResponse] = await Promise.all([
+            axios.get(`https://api.bybit.com/v5/market/tickers`, {
+              params: {
+                category: 'linear',
+                symbol: `${symbol}USDT`
+              }
+            }),
+            axios.get(`https://api.bybit.com/v5/market/funding/history`, {
+              params: {
+                category: 'linear',
+                symbol: `${symbol}USDT`,
+                limit: 1
+              }
+            }),
+            axios.get(`https://api.bybit.com/v5/market/orderbook`, {
+              params: {
+                category: 'linear',
+                symbol: `${symbol}USDT`,
+                limit: 1
+              }
+            })
+          ]);
           
           this.logger.debug(`Responses received for ${symbol}USDT:`, {
             ticker: tickerResponse.data,
@@ -260,12 +256,10 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
             const funding = fundingResponse.data?.result?.list?.[0] || {};
             const orderbook = orderbookResponse.data?.result || {};
             
-            // Formatear los datos
-            const price = parseFloat(ticker.lastPrice);
-            const changePercent = parseFloat(ticker.price24hPcnt) * 100;
+            const price = parseFloat(ticker.lastPrice || '0');
+            const changePercent = parseFloat(ticker.price24hPcnt || '0') * 100;
             const fundingRate = parseFloat(funding.fundingRate || '0') * 100;
             
-            // Calcular próximo tiempo de funding (cada 8 horas: 00:00, 08:00, 16:00 UTC)
             const now = new Date();
             const hours = now.getUTCHours();
             const nextFundingHour = Math.ceil(hours / 8) * 8 % 24;
@@ -278,29 +272,29 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
               0
             )).getTime();
             
-            // Actualizar el ticker
-            this.perpetualTickers.set(symbol, {
+            const updatedTicker: PerpetualMarketTicker = {
               symbol,
               price: price.toFixed(2),
               lastPrice: price.toFixed(2),
-              indexPrice: parseFloat(ticker.indexPrice || ticker.lastPrice).toFixed(2),
-              markPrice: parseFloat(ticker.markPrice || ticker.lastPrice).toFixed(2),
+              indexPrice: parseFloat(ticker.indexPrice || ticker.lastPrice || '0').toFixed(2),
+              markPrice: parseFloat(ticker.markPrice || ticker.lastPrice || '0').toFixed(2),
               change: `${changePercent.toFixed(2)}%`,
-              volume: parseFloat(ticker.volume24h).toFixed(2),
-              high24h: parseFloat(ticker.highPrice24h).toFixed(2),
-              low24h: parseFloat(ticker.lowPrice24h).toFixed(2),
-              volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h)),
+              volume: parseFloat(ticker.volume24h || '0').toFixed(2),
+              high24h: parseFloat(ticker.highPrice24h || '0').toFixed(2),
+              low24h: parseFloat(ticker.lowPrice24h || '0').toFixed(2),
+              volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h || '0')),
               marketType: 'perpetual',
-              openInterest: this.formatVolume(parseFloat(ticker.openInterest)),
+              openInterest: this.formatVolume(parseFloat(ticker.openInterest || '0')),
               fundingRate: `${fundingRate.toFixed(4)}%`,
               nextFundingTime,
               leverage: '10x',
-              bidPrice: parseFloat(orderbook.b?.[0]?.[0] || ticker.bid1Price).toFixed(2),
-              askPrice: parseFloat(orderbook.a?.[0]?.[0] || ticker.ask1Price).toFixed(2),
+              bidPrice: parseFloat(orderbook.b?.[0]?.[0] || ticker.bid1Price || '0').toFixed(2),
+              askPrice: parseFloat(orderbook.a?.[0]?.[0] || ticker.ask1Price || '0').toFixed(2),
               favorite: false
-            });
+            };
             
-            this.logger.debug(`Updated initial data for ${symbol}: ${JSON.stringify(this.perpetualTickers.get(symbol))}`);
+            this.perpetualTickers.set(symbol, updatedTicker);
+            this.logger.debug(`Updated initial data for ${symbol}: ${JSON.stringify(updatedTicker)}`);
           } else {
             this.logger.warn(`No initial ticker data found for ${symbol}USDT`);
           }
