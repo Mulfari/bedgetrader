@@ -7,7 +7,10 @@ import WebSocket from 'ws';
 export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SpotMarketService.name);
   private spotTickers: Map<string, SpotMarketTicker> = new Map();
-  private readonly symbols = ['BTC', 'ETH', 'SOL', 'XRP'];
+  private readonly symbols = [
+    'BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'LINK', 'UNI', 
+    'SHIB', 'LTC', 'BCH', 'ATOM', 'NEAR', 'AVAX', 'MATIC', 'DOT'
+  ];
   private ws: WebSocket | null = null;
   private wsConnected = false;
   private reconnectAttempts = 0;
@@ -230,5 +233,9 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
 
   getSpotTicker(symbol: string): SpotMarketTicker | undefined {
     return this.spotTickers.get(symbol);
+  }
+
+  getAvailableSymbols(): string[] {
+    return [...this.symbols];
   }
 } 

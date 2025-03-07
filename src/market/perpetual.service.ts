@@ -7,7 +7,10 @@ import WebSocket from 'ws';
 export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PerpetualMarketService.name);
   private perpetualTickers: Map<string, PerpetualMarketTicker> = new Map();
-  private readonly symbols = ['BTC', 'ETH', 'SOL', 'XRP'];
+  private readonly symbols = [
+    'BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'DOGE', 'LINK', 'UNI', 
+    'AVAX', 'MATIC', 'DOT'
+  ];
   private ws: WebSocket | null = null;
   private wsConnected = false;
   private reconnectAttempts = 0;
@@ -512,5 +515,9 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
       connected: this.wsConnected,
       reconnectAttempts: this.reconnectAttempts
     };
+  }
+
+  getAvailableSymbols(): string[] {
+    return [...this.symbols];
   }
 }
