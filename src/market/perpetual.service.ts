@@ -79,7 +79,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
       // Conectar WebSocket
       this.connectWebSocket();
       
-      // Configurar actualización periódica del funding rate (cada 5 minutos)
+      // Configurar actualización periódica del funding rate (cada 1 minuto)
       this.fundingUpdateInterval = setInterval(() => {
         this.logger.log('Actualizando datos de funding rate periódicamente...');
         this.updateFundingRates()
@@ -89,7 +89,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
           .catch(error => {
             this.logger.error(`Error in funding rate update interval: ${error.message}`);
           });
-      }, 5 * 60 * 1000); // Actualizar cada 5 minutos
+      }, 60 * 1000); // Actualizar cada 1 minuto
       
       this.logger.log('PerpetualMarketService initialized successfully');
     } catch (error) {
@@ -486,19 +486,18 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
 
   // Método para actualizar los funding rates de todos los símbolos
   async updateFundingRates(): Promise<void> {
+    this.logger.log('Actualizando funding rates para todos los símbolos...');
+    
     // Para cada símbolo, actualizar solo el funding rate
     for (const symbol of this.symbols) {
       try {
-        // Obtener datos de funding
-        const fundingResponse = await axios.get('https://api.bybit.com/v5/market/funding/history', {
-          params: {
-            category: 'linear',
-            symbol: `${symbol}USDT`,
-            limit: 1
-          }
-        });
+        // Obtener datos de funding directamente de la API de Bybit
+        const fundingUrl = `https://api.bybit.com/v5/market/funding/history?category=linear&symbol=${symbol}USDT&limit=1`;
+        this.logger.log(`Requesting funding data from: ${fundingUrl}`);
         
-        // Verificar si la respuesta de funding es válida
+        const fundingResponse = await axios.get(fundingUrl);
+        
+        // Verificar si la respuesta es válida
         if (fundingResponse.data?.retCode !== 0) {
           this.logger.error(`Error from Bybit API (funding): ${fundingResponse.data?.retMsg || 'Unknown error'}`);
           continue;
@@ -507,19 +506,25 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         // Imprimir la respuesta completa para diagnóstico
         this.logger.log(`Funding response for ${symbol}: ${JSON.stringify(fundingResponse.data)}`);
         
-        const funding = fundingResponse.data?.result?.list?.[0] || {};
+        // Verificar si hay datos en la respuesta
+        if (!fundingResponse.data?.result?.list || fundingResponse.data.result.list.length === 0) {
+          this.logger.warn(`No funding data available for ${symbol} in API response`);
+          continue;
+        }
+        
+        const funding = fundingResponse.data.result.list[0];
         
         // Imprimir el objeto funding para diagnóstico
         this.logger.log(`Funding data for ${symbol}: ${JSON.stringify(funding)}`);
         
         // Verificar si tenemos datos de funding
         if (!funding || !funding.fundingRate) {
-          this.logger.warn(`No funding data available for ${symbol}`);
+          this.logger.warn(`No funding rate available for ${symbol}`);
           continue;
         }
         
         // Convertir el funding rate a porcentaje (multiplicar por 100)
-        const fundingRate = parseFloat(funding.fundingRate || '0') * 100;
+        const fundingRate = parseFloat(funding.fundingRate) * 100;
         
         // Asegurar que se guarda correctamente
         this.logger.log(`Funding rate for ${symbol}: ${funding.fundingRate} -> Formatted: ${fundingRate.toFixed(4)}%`);
@@ -565,6 +570,15 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         }
       } catch (error) {
         this.logger.error(`Error updating funding rate for ${symbol}: ${error.message}`);
+      }
+    }
+    
+    // Imprimir todos los tickers actualizados para diagnóstico
+    this.logger.log('Funding rates updated for all symbols. Current tickers:');
+    for (const symbol of this.symbols) {
+      const ticker = this.perpetualTickers.get(symbol);
+      if (ticker) {
+        this.logger.log(`${symbol}: price=${ticker.price}, openInterest=${ticker.openInterest}, fundingRate=${ticker.fundingRate}`);
       }
     }
   }

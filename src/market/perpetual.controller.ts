@@ -19,6 +19,14 @@ export class PerpetualMarketController {
       await this.perpetualMarketService.fetchInitialData();
     }
     
+    // Actualizar los funding rates
+    try {
+      this.logger.log('Actualizando funding rates antes de devolver tickers...');
+      await this.perpetualMarketService.updateFundingRates();
+    } catch (error) {
+      this.logger.error(`Error updating funding rates: ${error.message}`);
+    }
+    
     const tickers = this.perpetualMarketService.getPerpetualTickers();
     
     // Verificar que los datos tengan la estructura correcta
