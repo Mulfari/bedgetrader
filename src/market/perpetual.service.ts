@@ -13,7 +13,6 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
   private reconnectAttempts = 0;
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
   private reconnectTimeout: NodeJS.Timeout | null = null;
-  private fundingUpdateInterval: NodeJS.Timeout | null = null;
 
   constructor() {
     // Inicializar los tickers con valores mínimos
@@ -72,24 +71,8 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
       // Cargar datos iniciales
       await this.fetchInitialData();
       
-      // Actualizar específicamente los funding rates
-      this.logger.log('Actualizando funding rates iniciales...');
-      await this.updateFundingRates();
-      
       // Conectar WebSocket
       this.connectWebSocket();
-      
-      // Configurar actualización periódica del funding rate (cada 1 minuto)
-      this.fundingUpdateInterval = setInterval(() => {
-        this.logger.log('Actualizando datos de funding rate periódicamente...');
-        this.updateFundingRates()
-          .then(() => {
-            this.logger.log('Funding rates updated successfully');
-          })
-          .catch(error => {
-            this.logger.error(`Error in funding rate update interval: ${error.message}`);
-          });
-      }, 60 * 1000); // Actualizar cada 1 minuto
       
       this.logger.log('PerpetualMarketService initialized successfully');
     } catch (error) {
@@ -99,13 +82,6 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
 
   onModuleDestroy() {
     this.closeWebSocket();
-    
-    // Limpiar el intervalo de actualización del funding rate
-    if (this.fundingUpdateInterval) {
-      clearInterval(this.fundingUpdateInterval);
-      this.fundingUpdateInterval = null;
-      this.logger.log('Funding rate update interval cleared');
-    }
   }
 
   private connectWebSocket() {
@@ -243,10 +219,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
               volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h || '0')),
               openInterest: formattedOpenInterest,
               bidPrice: parseFloat(ticker.bid1Price || existingTicker.bidPrice || '0').toFixed(2),
-              askPrice: parseFloat(ticker.ask1Price || existingTicker.askPrice || '0').toFixed(2),
-              // Mantener los valores de funding que no vienen en el WebSocket
-              fundingRate: existingTicker.fundingRate,
-              nextFundingTime: existingTicker.nextFundingTime
+              askPrice: parseFloat(ticker.ask1Price || existingTicker.askPrice || '0').toFixed(2)
             };
             
             // Actualizar el ticker en el mapa
@@ -399,9 +372,39 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
                 this.logger.warn(`${symbol} ticker does not have openInterest property`);
               }
               
+              // Obtener datos de funding
+              const fundingResponse = await axios.get('https://api.bybit.com/v5/market/funding/history', {
+                params: {
+                  category: 'linear',
+                  symbol: `${symbol}USDT`,
+                  limit: 1
+                }
+              });
+              
+              // Verificar si la respuesta de funding es válida
+              if (fundingResponse.data?.retCode !== 0) {
+                this.logger.error(`Error from Bybit API (funding): ${fundingResponse.data?.retMsg || 'Unknown error'}`);
+              }
+              
+              const funding = fundingResponse.data?.result?.list?.[0] || {};
+              
               // Formatear los datos
               const price = parseFloat(ticker.lastPrice || '0');
               const changePercent = parseFloat(ticker.price24hPcnt || '0') * 100;
+              const fundingRate = parseFloat(funding.fundingRate || '0') * 100;
+              
+              // Calcular próximo tiempo de funding (cada 8 horas: 00:00, 08:00, 16:00 UTC)
+              const now = new Date();
+              const hours = now.getUTCHours();
+              const nextFundingHour = Math.ceil(hours / 8) * 8 % 24;
+              const nextFundingTime = new Date(Date.UTC(
+                now.getUTCFullYear(),
+                now.getUTCMonth(),
+                now.getUTCDate() + (nextFundingHour <= hours ? 1 : 0),
+                nextFundingHour,
+                0,
+                0
+              )).getTime();
               
               // Procesar el openInterest correctamente
               let formattedOpenInterest = '0 ' + symbol;
@@ -415,7 +418,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
                 }
               }
               
-              // Crear objeto ticker con todos los datos excepto funding rate
+              // Crear objeto ticker con todos los datos
               const updatedTicker: PerpetualMarketTicker = {
                 symbol,
                 price: price.toFixed(2),
@@ -429,8 +432,8 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
                 volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h || '0')),
                 marketType: 'perpetual',
                 openInterest: formattedOpenInterest,
-                fundingRate: '0.00%', // Valor temporal, se actualizará después
-                nextFundingTime: Date.now() + 8 * 60 * 60 * 1000, // Valor temporal, se actualizará después
+                fundingRate: `${fundingRate.toFixed(4)}%`,
+                nextFundingTime,
                 leverage: '10x',
                 bidPrice: parseFloat(ticker.bid1Price || '0').toFixed(2),
                 askPrice: parseFloat(ticker.ask1Price || '0').toFixed(2),
@@ -477,82 +480,10 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
     return this.perpetualTickers.get(symbol);
   }
   
-  updatePerpetualTicker(symbol: string, updatedTicker: PerpetualMarketTicker): void {
-    this.logger.log(`Updating ticker for ${symbol}: fundingRate=${updatedTicker.fundingRate}`);
-    this.perpetualTickers.set(symbol, updatedTicker);
-  }
-  
   getWebSocketStatus(): { connected: boolean, reconnectAttempts: number } {
     return {
       connected: this.wsConnected,
       reconnectAttempts: this.reconnectAttempts
     };
-  }
-
-  // Método para actualizar los funding rates de todos los símbolos
-  async updateFundingRates(): Promise<void> {
-    this.logger.log('Actualizando funding rates para todos los símbolos...');
-    
-    // Valores hardcodeados para pruebas
-    const hardcodedRates = {
-      'BTC': 0.0123,
-      'ETH': 0.0045,
-      'SOL': 0.0078,
-      'XRP': 0.0056
-    };
-    
-    // Para cada símbolo, actualizar solo el funding rate
-    for (const symbol of this.symbols) {
-      try {
-        // Usar valor hardcodeado para pruebas
-        const fundingRate = hardcodedRates[symbol] || 0.01;
-        
-        // Asegurar que se guarda correctamente
-        this.logger.log(`Using hardcoded funding rate for ${symbol}: ${fundingRate.toFixed(4)}%`);
-        
-        // Calcular próximo tiempo de funding (cada 8 horas: 00:00, 08:00, 16:00 UTC)
-        const now = new Date();
-        const hours = now.getUTCHours();
-        const nextFundingHour = Math.ceil(hours / 8) * 8 % 24;
-        const nextFundingTime = new Date(Date.UTC(
-          now.getUTCFullYear(),
-          now.getUTCMonth(),
-          now.getUTCDate() + (nextFundingHour <= hours ? 1 : 0),
-          nextFundingHour,
-          0,
-          0
-        )).getTime();
-        
-        // Obtener el ticker existente
-        const existingTicker = this.perpetualTickers.get(symbol);
-        if (existingTicker) {
-          // Crear un nuevo objeto ticker con el funding rate actualizado
-          const updatedTicker = {
-            ...existingTicker,
-            fundingRate: `${fundingRate.toFixed(4)}%`,
-            nextFundingTime
-          };
-          
-          // Actualizar el ticker en el mapa
-          this.perpetualTickers.set(symbol, updatedTicker);
-          
-          // Imprimir el ticker actualizado para diagnóstico
-          this.logger.log(`Updated funding rate for ${symbol}: ${updatedTicker.fundingRate}, next funding time: ${new Date(updatedTicker.nextFundingTime).toISOString()}`);
-        } else {
-          this.logger.warn(`No ticker found for ${symbol} to update funding rate`);
-        }
-      } catch (error) {
-        this.logger.error(`Error updating funding rate for ${symbol}: ${error.message}`);
-      }
-    }
-    
-    // Imprimir todos los tickers actualizados para diagnóstico
-    this.logger.log('Funding rates updated for all symbols. Current tickers:');
-    for (const symbol of this.symbols) {
-      const ticker = this.perpetualTickers.get(symbol);
-      if (ticker) {
-        this.logger.log(`${symbol}: price=${ticker.price}, openInterest=${ticker.openInterest}, fundingRate=${ticker.fundingRate}`);
-      }
-    }
   }
 }
