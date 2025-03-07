@@ -94,16 +94,19 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         this.reconnectAttempts = 0;
         this.logger.log('WebSocket connection established for perpetual markets');
         
-        // Suscribirse solo a los tickers para simplificar
+        // Suscribirse a los tickers y funding para obtener todos los datos necesarios
         const symbols = this.symbols.map(symbol => `${symbol}USDT`);
         const subscribeMsg = {
           req_id: "perpetual_subscription",
           op: 'subscribe',
-          args: symbols.map(symbol => `tickers.${symbol}`)
+          args: [
+            ...symbols.map(symbol => `tickers.${symbol}`),
+            ...symbols.map(symbol => `funding.${symbol}`)
+          ]
         };
         
         this.ws.send(JSON.stringify(subscribeMsg));
-        this.logger.log(`Subscribed to perpetual tickers: ${JSON.stringify(subscribeMsg)}`);
+        this.logger.log(`Subscribed to perpetual markets: ${JSON.stringify(subscribeMsg)}`);
         
         // Configurar heartbeat cada 20 segundos para mantener la conexión activa
         const heartbeatInterval = setInterval(() => {
@@ -225,6 +228,55 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
             // Actualizar el ticker en el mapa
             this.perpetualTickers.set(symbol, updatedTicker);
             this.logger.log(`Updated ticker for ${symbol} from WebSocket: price=${updatedTicker.price}, openInterest=${updatedTicker.openInterest}`);
+          } else if (msgType === 'funding' && message.data) {
+            // Verificar si message.data es un array
+            const funding = Array.isArray(message.data) ? message.data[0] : message.data;
+            this.logger.log(`Funding data for ${symbol}: ${JSON.stringify(funding)}`);
+            
+            // Verificar si funding tiene los campos necesarios
+            if (!funding) {
+              this.logger.warn(`Invalid funding data for ${symbol}: ${JSON.stringify(funding)}`);
+              return;
+            }
+            
+            // Procesar el funding rate correctamente
+            let fundingRate = existingTicker.fundingRate;
+            if (funding.fundingRate) {
+              const fundingRateValue = parseFloat(funding.fundingRate);
+              if (!isNaN(fundingRateValue)) {
+                // Convertir a porcentaje y formatear con 4 decimales
+                const fundingRatePercent = fundingRateValue * 100;
+                fundingRate = `${fundingRatePercent >= 0 ? '+' : ''}${fundingRatePercent.toFixed(4)}%`;
+              }
+            }
+            
+            // Procesar el nextFundingTime correctamente
+            let nextFundingTime = existingTicker.nextFundingTime;
+            if (funding.nextFundingTime) {
+              const fundingTimeValue = new Date(funding.nextFundingTime).getTime();
+              if (!isNaN(fundingTimeValue) && fundingTimeValue > Date.now()) {
+                nextFundingTime = fundingTimeValue;
+              }
+            }
+            
+            // Formatear el countdown para diagnóstico
+            const now = Date.now();
+            const diff = nextFundingTime - now;
+            const hours = Math.floor(diff / (1000 * 60 * 60));
+            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const countdown = `${hours}h ${minutes}m`;
+            
+            this.logger.log(`Updated funding info for ${symbol}: rate=${fundingRate}, nextTime=${new Date(nextFundingTime).toISOString()}, countdown=${countdown}`);
+            
+            const updatedTicker = {
+              ...existingTicker,
+              fundingRate,
+              nextFundingTime
+            };
+            
+            // Actualizar el ticker en el mapa
+            this.perpetualTickers.set(symbol, updatedTicker);
+            this.logger.log(`Updated funding for ${symbol} from WebSocket: fundingRate=${updatedTicker.fundingRate}`);
           }
         } catch (error) {
           this.logger.error(`Error processing WebSocket message: ${error.message}`);
@@ -273,7 +325,10 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         const unsubscribeMsg = {
           req_id: "perpetual_unsubscription",
           op: 'unsubscribe',
-          args: symbols.map(symbol => `tickers.${symbol}`)
+          args: [
+            ...symbols.map(symbol => `tickers.${symbol}`),
+            ...symbols.map(symbol => `funding.${symbol}`)
+          ]
         };
         
         this.ws.send(JSON.stringify(unsubscribeMsg));
@@ -388,23 +443,57 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
               
               const funding = fundingResponse.data?.result?.list?.[0] || {};
               
+              // Imprimir los datos de funding para diagnóstico
+              this.logger.log(`Funding data for ${symbol}: ${JSON.stringify(funding)}`);
+              
               // Formatear los datos
               const price = parseFloat(ticker.lastPrice || '0');
               const changePercent = parseFloat(ticker.price24hPcnt || '0') * 100;
-              const fundingRate = parseFloat(funding.fundingRate || '0') * 100;
+              
+              // Procesar el funding rate correctamente
+              let fundingRate = '0.0000%';
+              if (funding.fundingRate) {
+                const fundingRateValue = parseFloat(funding.fundingRate);
+                if (!isNaN(fundingRateValue)) {
+                  // Convertir a porcentaje y formatear con 4 decimales
+                  const fundingRatePercent = fundingRateValue * 100;
+                  fundingRate = `${fundingRatePercent >= 0 ? '+' : ''}${fundingRatePercent.toFixed(4)}%`;
+                }
+              }
               
               // Calcular próximo tiempo de funding (cada 8 horas: 00:00, 08:00, 16:00 UTC)
-              const now = new Date();
-              const hours = now.getUTCHours();
-              const nextFundingHour = Math.ceil(hours / 8) * 8 % 24;
-              const nextFundingTime = new Date(Date.UTC(
-                now.getUTCFullYear(),
-                now.getUTCMonth(),
-                now.getUTCDate() + (nextFundingHour <= hours ? 1 : 0),
-                nextFundingHour,
-                0,
-                0
-              )).getTime();
+              let nextFundingTime = Date.now() + 8 * 60 * 60 * 1000; // Valor por defecto: 8 horas desde ahora
+              
+              // Si tenemos el próximo tiempo de funding en la respuesta, usarlo
+              if (funding.nextFundingTime) {
+                const fundingTimeValue = new Date(funding.nextFundingTime).getTime();
+                if (!isNaN(fundingTimeValue) && fundingTimeValue > Date.now()) {
+                  nextFundingTime = fundingTimeValue;
+                } else {
+                  // Calcular el próximo tiempo de funding basado en la hora actual
+                  const now = new Date();
+                  const hours = now.getUTCHours();
+                  // Próximo tiempo de funding: 00:00, 08:00, 16:00 UTC
+                  const nextFundingHour = Math.ceil(hours / 8) * 8 % 24;
+                  nextFundingTime = new Date(Date.UTC(
+                    now.getUTCFullYear(),
+                    now.getUTCMonth(),
+                    now.getUTCDate() + (nextFundingHour <= hours ? 1 : 0),
+                    nextFundingHour,
+                    0,
+                    0
+                  )).getTime();
+                }
+              }
+              
+              // Formatear el countdown para diagnóstico
+              const now = Date.now();
+              const diff = nextFundingTime - now;
+              const hours = Math.floor(diff / (1000 * 60 * 60));
+              const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+              const countdown = `${hours}h ${minutes}m`;
+              
+              this.logger.log(`Funding info for ${symbol}: rate=${fundingRate}, nextTime=${new Date(nextFundingTime).toISOString()}, countdown=${countdown}`);
               
               // Procesar el openInterest correctamente
               let formattedOpenInterest = '0 ' + symbol;
@@ -432,7 +521,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
                 volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h || '0')),
                 marketType: 'perpetual',
                 openInterest: formattedOpenInterest,
-                fundingRate: `${fundingRate.toFixed(4)}%`,
+                fundingRate,
                 nextFundingTime,
                 leverage: '10x',
                 bidPrice: parseFloat(ticker.bid1Price || '0').toFixed(2),
@@ -444,7 +533,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
               this.perpetualTickers.set(symbol, updatedTicker);
               
               // Imprimir el ticker actualizado para diagnóstico
-              this.logger.log(`Updated ticker for ${symbol}: price=${updatedTicker.price}, openInterest=${updatedTicker.openInterest}`);
+              this.logger.log(`Updated ticker for ${symbol}: price=${updatedTicker.price}, openInterest=${updatedTicker.openInterest}, fundingRate=${updatedTicker.fundingRate}`);
             } else {
               this.logger.warn(`No ticker found for ${symbol}USDT in the response`);
             }
