@@ -183,9 +183,28 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
               return;
             }
             
+            // Imprimir específicamente el openInterest
+            if (ticker.openInterest) {
+              this.logger.log(`${symbol} WebSocket openInterest: ${ticker.openInterest} (type: ${typeof ticker.openInterest})`);
+            } else {
+              this.logger.warn(`${symbol} WebSocket ticker does not have openInterest property`);
+            }
+            
             // Actualizar propiedades del ticker
             const price = parseFloat(ticker.lastPrice || existingTicker.price || '0');
             const changePercent = parseFloat(ticker.price24hPcnt || '0') * 100;
+            
+            // Procesar el openInterest correctamente
+            let formattedOpenInterest = existingTicker.openInterest;
+            if (ticker.openInterest) {
+              const openInterestValue = parseFloat(ticker.openInterest);
+              if (!isNaN(openInterestValue) && openInterestValue > 0) {
+                formattedOpenInterest = this.formatVolume(openInterestValue) + ' ' + symbol;
+              } else {
+                // Si no podemos parsear el valor, mantenemos el valor existente
+                formattedOpenInterest = existingTicker.openInterest;
+              }
+            }
             
             const updatedTicker = {
               ...existingTicker,
@@ -198,14 +217,14 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
               high24h: parseFloat(ticker.highPrice24h || existingTicker.high24h || '0').toFixed(2),
               low24h: parseFloat(ticker.lowPrice24h || existingTicker.low24h || '0').toFixed(2),
               volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h || '0')),
-              openInterest: this.formatVolume(parseFloat(ticker.openInterest || '0')) + ' ' + symbol,
+              openInterest: formattedOpenInterest,
               bidPrice: parseFloat(ticker.bid1Price || existingTicker.bidPrice || '0').toFixed(2),
               askPrice: parseFloat(ticker.ask1Price || existingTicker.askPrice || '0').toFixed(2)
             };
             
             // Actualizar el ticker en el mapa
             this.perpetualTickers.set(symbol, updatedTicker);
-            this.logger.log(`Updated ticker for ${symbol} from WebSocket: price=${updatedTicker.price}, change=${updatedTicker.change}`);
+            this.logger.log(`Updated ticker for ${symbol} from WebSocket: price=${updatedTicker.price}, openInterest=${updatedTicker.openInterest}`);
           }
         } catch (error) {
           this.logger.error(`Error processing WebSocket message: ${error.message}`);
@@ -322,7 +341,15 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         
         // Imprimir el primer ticker para diagnóstico
         if (Array.isArray(allTickersResponse.data.result.list) && allTickersResponse.data.result.list.length > 0) {
-          this.logger.log(`Sample ticker: ${JSON.stringify(allTickersResponse.data.result.list[0])}`);
+          const sampleTicker = allTickersResponse.data.result.list[0];
+          this.logger.log(`Sample ticker: ${JSON.stringify(sampleTicker)}`);
+          
+          // Imprimir específicamente el openInterest
+          if (sampleTicker.openInterest) {
+            this.logger.log(`Sample openInterest: ${sampleTicker.openInterest} (type: ${typeof sampleTicker.openInterest})`);
+          } else {
+            this.logger.warn('Sample ticker does not have openInterest property');
+          }
         }
       }
       
@@ -338,6 +365,13 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
             if (ticker) {
               this.logger.log(`Found ticker for ${symbol}: ${JSON.stringify(ticker)}`);
               
+              // Imprimir específicamente el openInterest
+              if (ticker.openInterest) {
+                this.logger.log(`${symbol} openInterest: ${ticker.openInterest} (type: ${typeof ticker.openInterest})`);
+              } else {
+                this.logger.warn(`${symbol} ticker does not have openInterest property`);
+              }
+              
               // Obtener datos de funding
               const fundingResponse = await axios.get('https://api.bybit.com/v5/market/funding/history', {
                 params: {
@@ -350,25 +384,6 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
               // Verificar si la respuesta de funding es válida
               if (fundingResponse.data?.retCode !== 0) {
                 this.logger.error(`Error from Bybit API (funding): ${fundingResponse.data?.retMsg || 'Unknown error'}`);
-              }
-              
-              // Imprimir la estructura de la respuesta de funding para diagnóstico
-              if (fundingResponse.data?.result) {
-                this.logger.log(`Funding response structure: ${JSON.stringify({
-                  retCode: fundingResponse.data.retCode,
-                  retMsg: fundingResponse.data.retMsg,
-                  result: {
-                    category: fundingResponse.data.result.category,
-                    list: Array.isArray(fundingResponse.data.result.list) 
-                      ? `Array with ${fundingResponse.data.result.list.length} items` 
-                      : typeof fundingResponse.data.result.list
-                  }
-                })}`);
-                
-                // Imprimir el primer item de funding para diagnóstico
-                if (Array.isArray(fundingResponse.data.result.list) && fundingResponse.data.result.list.length > 0) {
-                  this.logger.log(`Sample funding: ${JSON.stringify(fundingResponse.data.result.list[0])}`);
-                }
               }
               
               const funding = fundingResponse.data?.result?.list?.[0] || {};
@@ -391,6 +406,18 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
                 0
               )).getTime();
               
+              // Procesar el openInterest correctamente
+              let formattedOpenInterest = '0 ' + symbol;
+              if (ticker.openInterest) {
+                const openInterestValue = parseFloat(ticker.openInterest);
+                if (!isNaN(openInterestValue) && openInterestValue > 0) {
+                  formattedOpenInterest = this.formatVolume(openInterestValue) + ' ' + symbol;
+                } else {
+                  // Si no podemos parsear el valor, usamos el valor original
+                  formattedOpenInterest = ticker.openInterest + ' ' + symbol;
+                }
+              }
+              
               // Crear objeto ticker con todos los datos
               const updatedTicker: PerpetualMarketTicker = {
                 symbol,
@@ -404,7 +431,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
                 low24h: parseFloat(ticker.lowPrice24h || '0').toFixed(2),
                 volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h || '0')),
                 marketType: 'perpetual',
-                openInterest: this.formatVolume(parseFloat(ticker.openInterest || '0')) + ' ' + symbol,
+                openInterest: formattedOpenInterest,
                 fundingRate: `${fundingRate.toFixed(4)}%`,
                 nextFundingTime,
                 leverage: '10x',
@@ -417,7 +444,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
               this.perpetualTickers.set(symbol, updatedTicker);
               
               // Imprimir el ticker actualizado para diagnóstico
-              this.logger.log(`Updated ticker for ${symbol}: price=${updatedTicker.price}, change=${updatedTicker.change}`);
+              this.logger.log(`Updated ticker for ${symbol}: price=${updatedTicker.price}, openInterest=${updatedTicker.openInterest}`);
             } else {
               this.logger.warn(`No ticker found for ${symbol}USDT in the response`);
             }
