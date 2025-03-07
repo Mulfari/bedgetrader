@@ -82,11 +82,20 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         };
         
         this.ws.send(JSON.stringify(subscribeMsg));
-        this.logger.log('Subscribed to perpetual markets');
+        this.logger.log(`Subscribed to perpetual markets: ${JSON.stringify(subscribeMsg)}`);
         
         // Cargar datos iniciales después de conectar
         this.fetchInitialData()
-          .then(() => this.logger.log('Initial data loaded after WebSocket connection'))
+          .then(() => {
+            this.logger.log('Initial data loaded after WebSocket connection');
+            // Imprimir el estado actual de los tickers
+            this.logger.log(`Current tickers: ${JSON.stringify(Array.from(this.perpetualTickers.entries()).map(([key, value]) => ({ 
+              symbol: key, 
+              price: value.price,
+              openInterest: value.openInterest,
+              fundingRate: value.fundingRate
+            })))}`);
+          })
           .catch(err => this.logger.error(`Error loading initial data: ${err.message}`));
       });
 
@@ -94,10 +103,8 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         try {
           const message = JSON.parse(data.toString());
           
-          // Solo imprimir mensajes de error
-          if (message.success === false) {
-            this.logger.warn(`WebSocket error message: ${JSON.stringify(message)}`);
-          }
+          // Imprimir todos los mensajes para diagnóstico
+          this.logger.debug(`WebSocket message: ${data.toString().substring(0, 200)}...`);
           
           // Ignorar mensajes que no son de datos
           if (!message.topic) return;
@@ -107,11 +114,17 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
           const symbol = symbolWithUsdt.replace('USDT', '');
           
           // Verificar que el símbolo sea válido
-          if (!this.symbols.includes(symbol)) return;
+          if (!this.symbols.includes(symbol)) {
+            this.logger.warn(`Received message for unknown symbol: ${symbol}`);
+            return;
+          }
           
           // Obtener el ticker existente
           const existingTicker = this.perpetualTickers.get(symbol);
-          if (!existingTicker) return;
+          if (!existingTicker) {
+            this.logger.warn(`No existing ticker found for ${symbol}`);
+            return;
+          }
           
           // Crear una copia para actualizar
           let updatedTicker = { ...existingTicker };
@@ -121,6 +134,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
             case 'tickers':
               if (message.data) {
                 const ticker = message.data;
+                this.logger.debug(`Ticker data for ${symbol}: ${JSON.stringify(ticker)}`);
                 
                 // Actualizar propiedades del ticker
                 const price = parseFloat(ticker.lastPrice || existingTicker.price || '0');
@@ -141,12 +155,15 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
                   bidPrice: parseFloat(ticker.bid1Price || existingTicker.bidPrice || '0').toFixed(2),
                   askPrice: parseFloat(ticker.ask1Price || existingTicker.askPrice || '0').toFixed(2)
                 };
+                
+                this.logger.debug(`Updated ticker for ${symbol}: openInterest=${updatedTicker.openInterest}, fundingRate=${updatedTicker.fundingRate}`);
               }
               break;
               
             case 'funding':
               if (message.data) {
                 const funding = message.data;
+                this.logger.debug(`Funding data for ${symbol}: ${JSON.stringify(funding)}`);
                 
                 // Actualizar propiedades de funding
                 const fundingRate = parseFloat(funding.fundingRate || '0') * 100;
@@ -159,6 +176,8 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
                   fundingRate: `${fundingRate.toFixed(4)}%`,
                   nextFundingTime
                 };
+                
+                this.logger.debug(`Updated funding for ${symbol}: fundingRate=${updatedTicker.fundingRate}, nextFundingTime=${new Date(updatedTicker.nextFundingTime).toISOString()}`);
               }
               break;
               
@@ -170,6 +189,8 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
                   bidPrice: parseFloat(message.data.b[0][0] || existingTicker.bidPrice || '0').toFixed(2),
                   askPrice: parseFloat(message.data.a[0][0] || existingTicker.askPrice || '0').toFixed(2)
                 };
+                
+                this.logger.debug(`Updated orderbook for ${symbol}: bidPrice=${updatedTicker.bidPrice}, askPrice=${updatedTicker.askPrice}`);
               }
               break;
           }

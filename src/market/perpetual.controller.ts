@@ -12,12 +12,29 @@ export class PerpetualMarketController {
   async getPerpetualTickers(): Promise<PerpetualMarketTicker[]> {
     this.logger.log('Request received for perpetual tickers');
     
-    // Forzar la carga de datos iniciales
-    await this.perpetualMarketService.fetchInitialData();
+    // Forzar la carga de datos iniciales si no hay conexión WebSocket
+    if (!this.perpetualMarketService.getWebSocketStatus().connected) {
+      this.logger.log('WebSocket not connected, fetching initial data...');
+      await this.perpetualMarketService.fetchInitialData();
+    }
     
     const tickers = this.perpetualMarketService.getPerpetualTickers();
-    this.logger.log(`Returning ${tickers.length} perpetual tickers`);
     
+    // Verificar que los datos tengan la estructura correcta
+    if (tickers.length > 0) {
+      const firstTicker = tickers[0];
+      this.logger.log(`Sample ticker data: ${JSON.stringify({
+        symbol: firstTicker.symbol,
+        price: firstTicker.price,
+        openInterest: firstTicker.openInterest,
+        fundingRate: firstTicker.fundingRate,
+        nextFundingTime: firstTicker.nextFundingTime
+      })}`);
+    } else {
+      this.logger.warn('No perpetual tickers found');
+    }
+    
+    this.logger.log(`Returning ${tickers.length} perpetual tickers`);
     return tickers;
   }
 
@@ -25,12 +42,20 @@ export class PerpetualMarketController {
   async getPerpetualTicker(@Param('symbol') symbol: string): Promise<PerpetualMarketTicker | undefined> {
     this.logger.log(`Request received for perpetual ticker: ${symbol}`);
     
-    // Forzar la carga de datos iniciales
-    await this.perpetualMarketService.fetchInitialData();
+    // Forzar la carga de datos iniciales si no hay conexión WebSocket
+    if (!this.perpetualMarketService.getWebSocketStatus().connected) {
+      this.logger.log('WebSocket not connected, fetching initial data...');
+      await this.perpetualMarketService.fetchInitialData();
+    }
     
     const ticker = this.perpetualMarketService.getPerpetualTicker(symbol);
     if (ticker) {
-      this.logger.log(`Returning perpetual ticker for ${symbol}`);
+      this.logger.log(`Returning perpetual ticker for ${symbol}: ${JSON.stringify({
+        price: ticker.price,
+        openInterest: ticker.openInterest,
+        fundingRate: ticker.fundingRate,
+        nextFundingTime: ticker.nextFundingTime
+      })}`);
     } else {
       this.logger.warn(`Perpetual ticker not found for ${symbol}`);
     }
