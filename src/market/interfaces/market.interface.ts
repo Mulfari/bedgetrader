@@ -10,10 +10,19 @@ export interface BaseMarketTicker {
   favorite: boolean;
 }
 
-export interface SpotMarketTicker extends BaseMarketTicker {
+export interface SpotMarketTicker {
+  symbol: string;
+  price: string;
+  indexPrice: string;
+  change: string;
+  volume: string;
+  high24h: string;
+  low24h: string;
+  volumeUSDT: string;
   marketType: 'spot';
   bidPrice: string;
   askPrice: string;
+  favorite: boolean;
 }
 
 export interface PerpetualMarketTicker extends BaseMarketTicker {
