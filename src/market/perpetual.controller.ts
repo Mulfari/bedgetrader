@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Logger } from '@nestjs/common';
 import { PerpetualMarketService } from './perpetual.service';
 import { PerpetualMarketTicker } from './interfaces/market.interface';
+import axios from 'axios';
 
 @Controller('market/perpetual')
 export class PerpetualMarketController {
@@ -124,5 +125,69 @@ export class PerpetualMarketController {
     };
     
     return status;
+  }
+
+  @Get('debug')
+  async getDebugInfo() {
+    this.logger.log('Request received for perpetual debug info');
+    
+    try {
+      // Obtener datos directamente de la API de Bybit
+      const symbol = 'BTC';
+      const tickerResponse = await axios.get(`https://api.bybit.com/v5/market/tickers`, {
+        params: {
+          category: 'linear',
+          symbol: `${symbol}USDT`
+        }
+      });
+      
+      const fundingResponse = await axios.get(`https://api.bybit.com/v5/market/funding/history`, {
+        params: {
+          category: 'linear',
+          symbol: `${symbol}USDT`,
+          limit: 1
+        }
+      });
+      
+      const orderbookResponse = await axios.get(`https://api.bybit.com/v5/market/orderbook`, {
+        params: {
+          category: 'linear',
+          symbol: `${symbol}USDT`,
+          limit: 1
+        }
+      });
+      
+      // Obtener datos del servicio
+      const tickers = this.perpetualMarketService.getPerpetualTickers();
+      const wsStatus = this.perpetualMarketService.getWebSocketStatus();
+      
+      // Devolver toda la información para diagnóstico
+      return {
+        service: {
+          websocket: wsStatus,
+          tickers: tickers.map(ticker => ({
+            symbol: ticker.symbol,
+            price: ticker.price,
+            change: ticker.change,
+            openInterest: ticker.openInterest,
+            fundingRate: ticker.fundingRate,
+            nextFundingTime: ticker.nextFundingTime
+          }))
+        },
+        bybit: {
+          ticker: tickerResponse.data?.result?.list?.[0],
+          funding: fundingResponse.data?.result?.list?.[0],
+          orderbook: {
+            bid: orderbookResponse.data?.result?.b?.[0],
+            ask: orderbookResponse.data?.result?.a?.[0]
+          }
+        }
+      };
+    } catch (error) {
+      return {
+        error: error.message,
+        stack: error.stack
+      };
+    }
   }
 } 

@@ -266,6 +266,9 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
             }
           });
           
+          // Imprimir la respuesta completa para diagnóstico
+          this.logger.log(`Ticker response for ${symbol}: ${JSON.stringify(tickerResponse.data)}`);
+          
           // Obtener datos de funding
           const fundingResponse = await axios.get(`https://api.bybit.com/v5/market/funding/history`, {
             params: {
@@ -275,6 +278,9 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
             }
           });
           
+          // Imprimir la respuesta completa para diagnóstico
+          this.logger.log(`Funding response for ${symbol}: ${JSON.stringify(fundingResponse.data)}`);
+          
           // Obtener datos del orderbook
           const orderbookResponse = await axios.get(`https://api.bybit.com/v5/market/orderbook`, {
             params: {
@@ -283,6 +289,9 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
               limit: 1
             }
           });
+          
+          // Imprimir la respuesta completa para diagnóstico
+          this.logger.log(`Orderbook response for ${symbol}: ${JSON.stringify(orderbookResponse.data)}`);
           
           if (tickerResponse.data?.result?.list?.[0]) {
             const ticker = tickerResponse.data.result.list[0];
@@ -307,8 +316,8 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
               0
             )).getTime();
             
-            // Actualizar el ticker
-            this.perpetualTickers.set(symbol, {
+            // Crear objeto ticker con todos los datos
+            const updatedTicker: PerpetualMarketTicker = {
               symbol,
               price: price.toFixed(2),
               lastPrice: price.toFixed(2),
@@ -327,9 +336,13 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
               bidPrice: parseFloat(orderbook.b?.[0]?.[0] || ticker.bid1Price || '0').toFixed(2),
               askPrice: parseFloat(orderbook.a?.[0]?.[0] || ticker.ask1Price || '0').toFixed(2),
               favorite: false
-            });
+            };
             
-            this.logger.log(`Updated initial data for ${symbol}: price=${price.toFixed(2)}, change=${changePercent.toFixed(2)}%`);
+            // Actualizar el ticker en el mapa
+            this.perpetualTickers.set(symbol, updatedTicker);
+            
+            // Imprimir el ticker actualizado para diagnóstico
+            this.logger.log(`Updated ticker for ${symbol}: ${JSON.stringify(updatedTicker)}`);
           } else {
             this.logger.warn(`No initial ticker data found for ${symbol}USDT`);
           }
