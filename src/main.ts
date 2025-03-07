@@ -6,24 +6,19 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule);
 
-  // 🔹 Definir orígenes permitidos dinámicamente
-  const allowedOrigins = [
-    "https://edgetrader.vercel.app", // Producción
-    "http://localhost:3000", // Desarrollo
-  ];
-
+  // Configurar CORS
   app.enableCors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("❌ CORS bloqueado para esta solicitud."));
-      }
-    },
-    methods: "GET,POST,PUT,DELETE,OPTIONS",
-    allowedHeaders: "Content-Type, Authorization",
-    credentials: true, // Si usas cookies o headers de autenticación
+    origin: [
+      'http://localhost:3000',
+      'https://edgetrader.vercel.app',
+      // Agregar otros orígenes permitidos si es necesario
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true,
   });
+  
+  // Configurar prefijo global para la API
+  app.setGlobalPrefix('api');
 
   const port = process.env.PORT || 3001;
   await app.listen(port);

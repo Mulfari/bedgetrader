@@ -1,11 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { SpotMarketTicker } from './interfaces/market.interface';
 import axios from 'axios';
 
 @Injectable()
 export class SpotMarketService {
+  private readonly logger = new Logger(SpotMarketService.name);
   private spotTickers: Map<string, SpotMarketTicker> = new Map();
   private readonly symbols = ['BTC', 'ETH', 'SOL', 'XRP'];
+  private lastFetchTime: number = 0;
+  private readonly CACHE_DURATION = 5000; // 5 segundos de caché
 
   constructor() {
     // Inicializar los tickers con valores por defecto
@@ -28,32 +31,82 @@ export class SpotMarketService {
   }
 
   async fetchSpotData(): Promise<void> {
+    const now = Date.now();
+    
+    // Si los datos tienen menos de 5 segundos, usar la caché
+    if (now - this.lastFetchTime < this.CACHE_DURATION) {
+      return;
+    }
+    
     try {
-      // Aquí puedes usar la API de tu preferencia (Binance, FTX, etc.)
-      const response = await axios.get('https://api.binance.com/api/v3/ticker/24hr');
-      const data = response.data;
-
-      this.symbols.forEach(symbol => {
-        const ticker = data.find(t => t.symbol === `${symbol}USDT`);
-        if (ticker) {
+      this.logger.log('Fetching spot market data from Bybit API...');
+      
+      // Obtener datos de la API de Bybit para cada símbolo
+      for (const symbol of this.symbols) {
+        const tickerResponse = await axios.get(`https://api.bybit.com/v5/market/tickers`, {
+          params: {
+            category: 'spot',
+            symbol: `${symbol}USDT`
+          }
+        });
+        
+        if (tickerResponse.data && tickerResponse.data.result && tickerResponse.data.result.list && tickerResponse.data.result.list.length > 0) {
+          const ticker = tickerResponse.data.result.list[0];
+          this.logger.debug(`Updating ticker for ${symbol}: ${JSON.stringify(ticker)}`);
+          
+          // Obtener datos de 24h para el cambio porcentual
+          const klineResponse = await axios.get(`https://api.bybit.com/v5/market/kline`, {
+            params: {
+              category: 'spot',
+              symbol: `${symbol}USDT`,
+              interval: 'D',
+              limit: 2
+            }
+          });
+          
+          let changePercent = '0.00';
+          if (klineResponse.data && klineResponse.data.result && klineResponse.data.result.list && klineResponse.data.result.list.length >= 2) {
+            const today = parseFloat(klineResponse.data.result.list[0][4]); // Precio de cierre actual
+            const yesterday = parseFloat(klineResponse.data.result.list[1][4]); // Precio de cierre anterior
+            const change = ((today - yesterday) / yesterday) * 100;
+            changePercent = change.toFixed(2);
+          }
+          
+          // Formatear los datos
+          const price = parseFloat(ticker.lastPrice);
+          const volume = parseFloat(ticker.volume24h);
+          const turnover = parseFloat(ticker.turnover24h);
+          
+          // Actualizar el ticker
           this.spotTickers.set(symbol, {
             symbol,
-            price: parseFloat(ticker.lastPrice).toFixed(2),
-            indexPrice: parseFloat(ticker.lastPrice).toFixed(2),
-            change: `${parseFloat(ticker.priceChangePercent).toFixed(2)}%`,
-            volume: parseFloat(ticker.volume).toFixed(2),
-            high24h: parseFloat(ticker.highPrice).toFixed(2),
-            low24h: parseFloat(ticker.lowPrice).toFixed(2),
-            volumeUSDT: `${(parseFloat(ticker.quoteVolume) / 1000000).toFixed(2)}M`,
+            price: price.toFixed(2),
+            indexPrice: price.toFixed(2),
+            change: `${changePercent}%`,
+            volume: volume.toFixed(2),
+            high24h: parseFloat(ticker.highPrice24h).toFixed(2),
+            low24h: parseFloat(ticker.lowPrice24h).toFixed(2),
+            volumeUSDT: turnover > 1000000 
+              ? `${(turnover / 1000000).toFixed(2)}M` 
+              : turnover.toFixed(2),
             marketType: 'spot',
-            bidPrice: parseFloat(ticker.bidPrice).toFixed(2),
-            askPrice: parseFloat(ticker.askPrice).toFixed(2),
+            bidPrice: parseFloat(ticker.bid1Price).toFixed(2),
+            askPrice: parseFloat(ticker.ask1Price).toFixed(2),
             favorite: false
           });
+        } else {
+          this.logger.warn(`No ticker found for ${symbol}USDT`);
         }
-      });
+      }
+      
+      this.lastFetchTime = now;
+      this.logger.log('Spot market data updated successfully');
     } catch (error) {
-      console.error('Error fetching spot market data:', error);
+      this.logger.error(`Error fetching spot market data: ${error.message}`);
+      if (error.response) {
+        this.logger.error(`Response status: ${error.response.status}`);
+        this.logger.error(`Response data: ${JSON.stringify(error.response.data)}`);
+      }
     }
   }
 
