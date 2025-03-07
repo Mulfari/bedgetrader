@@ -48,11 +48,11 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         fundingRate: '0.00%',
         nextFundingTime: Date.now() + 8 * 60 * 60 * 1000,
         leverage: '10x',
-        favorite: false,
-        interestRate: {
-          long: '0.00%',
-          short: '0.00%'
-        }
+        markPrice: '0.00',
+        lastPrice: '0.00',
+        bidPrice: '0.00',
+        askPrice: '0.00',
+        favorite: false
       });
     });
   }
@@ -224,14 +224,14 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
 
   private transformTickerData(data: any, type: 'spot' | 'perpetual'): MarketTicker {
     const baseData = {
-      symbol: data.symbol.replace('USDT', ''),
-      price: this.formatPrice(data.lastPrice),
-      indexPrice: this.formatPrice(data.markPrice || data.indexPrice),
-      change: this.formatPercentage(data.price24hPcnt),
-      volume: this.formatNumber(data.volume24h),
-      high24h: this.formatPrice(data.highPrice24h),
-      low24h: this.formatPrice(data.lowPrice24h),
-      volumeUSDT: this.formatNumber(data.turnover24h),
+      symbol: data.symbol?.replace('USDT', '') || '',
+      price: this.formatPrice(data.lastPrice || 0),
+      indexPrice: this.formatPrice(data.indexPrice || data.lastPrice || 0),
+      change: this.formatPercentage(data.change || 0),
+      volume: this.formatNumber(data.volume || 0),
+      high24h: this.formatPrice(data.high24h || 0),
+      low24h: this.formatPrice(data.low24h || 0),
+      volumeUSDT: this.formatNumber(data.volumeUSDT || 0),
       favorite: false
     };
 
@@ -239,8 +239,8 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       return {
         ...baseData,
         marketType: 'spot',
-        bidPrice: this.formatPrice(data.bidPrice || '0'),
-        askPrice: this.formatPrice(data.askPrice || '0')
+        bidPrice: this.formatPrice(data.bidPrice || 0),
+        askPrice: this.formatPrice(data.askPrice || 0)
       };
     } else {
       return {
@@ -250,10 +250,10 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         fundingRate: this.formatPercentage(data.fundingRate || 0),
         nextFundingTime: data.nextFundingTime || Date.now() + 8 * 60 * 60 * 1000,
         leverage: '10x',
-        interestRate: {
-          long: this.formatPercentage(data.longRate || 0),
-          short: this.formatPercentage(data.shortRate || 0)
-        }
+        markPrice: this.formatPrice(data.markPrice || data.lastPrice || 0),
+        lastPrice: this.formatPrice(data.lastPrice || 0),
+        bidPrice: this.formatPrice(data.bidPrice || 0),
+        askPrice: this.formatPrice(data.askPrice || 0)
       };
     }
   }

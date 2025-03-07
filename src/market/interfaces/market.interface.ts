@@ -31,10 +31,10 @@ export interface PerpetualMarketTicker extends BaseMarketTicker {
   fundingRate: string;
   nextFundingTime: number;
   leverage: string;
-  interestRate: {
-    long: string;
-    short: string;
-  };
+  markPrice: string;
+  lastPrice: string;
+  bidPrice: string;
+  askPrice: string;
 }
 
 export type MarketTicker = SpotMarketTicker | PerpetualMarketTicker;
