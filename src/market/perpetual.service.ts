@@ -372,39 +372,66 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
                 this.logger.warn(`${symbol} ticker does not have openInterest property`);
               }
               
-              // Obtener datos de funding
-              const fundingResponse = await axios.get('https://api.bybit.com/v5/market/funding/history', {
-                params: {
-                  category: 'linear',
-                  symbol: `${symbol}USDT`,
-                  limit: 1
-                }
-              });
+              // Obtener datos de funding directamente del ticker
+              let fundingRate = 0;
+              let nextFundingTime = 0;
               
-              // Verificar si la respuesta de funding es válida
-              if (fundingResponse.data?.retCode !== 0) {
-                this.logger.error(`Error from Bybit API (funding): ${fundingResponse.data?.retMsg || 'Unknown error'}`);
+              // Verificar si el ticker tiene los datos de funding
+              if (ticker.fundingRate) {
+                fundingRate = parseFloat(ticker.fundingRate) * 100;
+                this.logger.log(`${symbol} fundingRate from ticker: ${ticker.fundingRate} (${fundingRate.toFixed(4)}%)`);
+              } else {
+                this.logger.warn(`${symbol} ticker does not have fundingRate property, using API fallback`);
+                
+                // Fallback: Obtener datos de funding desde la API
+                try {
+                  const fundingResponse = await axios.get('https://api.bybit.com/v5/market/funding/history', {
+                    params: {
+                      category: 'linear',
+                      symbol: `${symbol}USDT`,
+                      limit: 1
+                    }
+                  });
+                  
+                  // Verificar si la respuesta de funding es válida
+                  if (fundingResponse.data?.retCode !== 0) {
+                    this.logger.error(`Error from Bybit API (funding): ${fundingResponse.data?.retMsg || 'Unknown error'}`);
+                  } else {
+                    const funding = fundingResponse.data?.result?.list?.[0] || {};
+                    fundingRate = parseFloat(funding.fundingRate || '0') * 100;
+                    
+                    // Imprimir la respuesta de funding para diagnóstico
+                    this.logger.debug(`Funding response for ${symbol}: ${JSON.stringify(funding)}`);
+                  }
+                } catch (error) {
+                  this.logger.error(`Error fetching funding data: ${error.message}`);
+                }
               }
               
-              const funding = fundingResponse.data?.result?.list?.[0] || {};
+              // Obtener nextFundingTime
+              if (ticker.nextFundingTime) {
+                nextFundingTime = parseInt(ticker.nextFundingTime);
+                this.logger.log(`${symbol} nextFundingTime from ticker: ${ticker.nextFundingTime}`);
+              } else {
+                this.logger.warn(`${symbol} ticker does not have nextFundingTime property, calculating manually`);
+                
+                // Calcular próximo tiempo de funding (cada 8 horas: 00:00, 08:00, 16:00 UTC)
+                const now = new Date();
+                const hours = now.getUTCHours();
+                const nextFundingHour = Math.ceil(hours / 8) * 8 % 24;
+                nextFundingTime = new Date(Date.UTC(
+                  now.getUTCFullYear(),
+                  now.getUTCMonth(),
+                  now.getUTCDate() + (nextFundingHour <= hours ? 1 : 0),
+                  nextFundingHour,
+                  0,
+                  0
+                )).getTime();
+              }
               
               // Formatear los datos
               const price = parseFloat(ticker.lastPrice || '0');
               const changePercent = parseFloat(ticker.price24hPcnt || '0') * 100;
-              const fundingRate = parseFloat(funding.fundingRate || '0') * 100;
-              
-              // Calcular próximo tiempo de funding (cada 8 horas: 00:00, 08:00, 16:00 UTC)
-              const now = new Date();
-              const hours = now.getUTCHours();
-              const nextFundingHour = Math.ceil(hours / 8) * 8 % 24;
-              const nextFundingTime = new Date(Date.UTC(
-                now.getUTCFullYear(),
-                now.getUTCMonth(),
-                now.getUTCDate() + (nextFundingHour <= hours ? 1 : 0),
-                nextFundingHour,
-                0,
-                0
-              )).getTime();
               
               // Procesar el openInterest correctamente
               let formattedOpenInterest = '0 ' + symbol;

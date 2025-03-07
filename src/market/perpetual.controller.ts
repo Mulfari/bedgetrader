@@ -29,7 +29,8 @@ export class PerpetualMarketController {
         price: firstTicker.price,
         openInterest: firstTicker.openInterest,
         fundingRate: firstTicker.fundingRate,
-        nextFundingTime: firstTicker.nextFundingTime
+        nextFundingTime: firstTicker.nextFundingTime,
+        fundingRateTimestamp: firstTicker.fundingRateTimestamp
       })}`);
     } else {
       this.logger.warn('No perpetual tickers found');
@@ -49,38 +50,105 @@ export class PerpetualMarketController {
       await this.perpetualMarketService.fetchInitialData();
     }
     
-    const ticker = this.perpetualMarketService.getPerpetualTicker(symbol);
+    const ticker = this.perpetualMarketService.getPerpetualTicker(symbol.toUpperCase());
+    
     if (ticker) {
-      this.logger.log(`Returning perpetual ticker for ${symbol}: ${JSON.stringify({
-        price: ticker.price,
-        openInterest: ticker.openInterest,
-        fundingRate: ticker.fundingRate,
-        nextFundingTime: ticker.nextFundingTime
-      })}`);
+      this.logger.log(`Returning perpetual ticker for ${symbol}`);
       return ticker;
     } else {
-      this.logger.warn(`Perpetual ticker not found for ${symbol}, returning default values`);
+      this.logger.warn(`Perpetual ticker not found for ${symbol}`);
+      return undefined;
+    }
+  }
+
+  @Get('funding/:symbol')
+  async getFundingInfo(@Param('symbol') symbol: string): Promise<any> {
+    this.logger.log(`Request received for funding info: ${symbol}`);
+    
+    try {
+      // Obtener datos directamente de la API de Bybit
+      const fundingResponse = await axios.get('https://api.bybit.com/v5/market/funding/history', {
+        params: {
+          category: 'linear',
+          symbol: `${symbol.toUpperCase()}USDT`,
+          limit: 1
+        }
+      });
       
-      // Devolver valores por defecto si no se encuentra el ticker
+      // Verificar si la respuesta es válida
+      if (fundingResponse.data?.retCode !== 0) {
+        this.logger.error(`Error from Bybit API (funding): ${fundingResponse.data?.retMsg || 'Unknown error'}`);
+        return {
+          success: false,
+          error: fundingResponse.data?.retMsg || 'Error al obtener datos de funding'
+        };
+      }
+      
+      const funding = fundingResponse.data?.result?.list?.[0] || {};
+      
+      // Formatear los datos
+      const fundingRate = parseFloat(funding.fundingRate || '0') * 100;
+      const fundingRateTimestamp = funding.fundingRateTimestamp ? parseInt(funding.fundingRateTimestamp) : null;
+      
+      // Obtener datos del ticker para complementar la información
+      const ticker = this.perpetualMarketService.getPerpetualTicker(symbol.toUpperCase());
+      
+      // Calcular próximo tiempo de funding (cada 8 horas: 00:00, 08:00, 16:00 UTC)
+      let nextFundingTime = null;
+      if (ticker && ticker.nextFundingTime) {
+        nextFundingTime = ticker.nextFundingTime;
+      } else {
+        const now = new Date();
+        const hours = now.getUTCHours();
+        const nextFundingHour = Math.ceil(hours / 8) * 8 % 24;
+        nextFundingTime = new Date(Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate() + (nextFundingHour <= hours ? 1 : 0),
+          nextFundingHour,
+          0,
+          0
+        )).getTime();
+      }
+      
+      // Obtener datos adicionales del ticker
+      const tickerResponse = await axios.get('https://api.bybit.com/v5/market/tickers', {
+        params: {
+          category: 'linear',
+          symbol: `${symbol.toUpperCase()}USDT`
+        }
+      });
+      
+      let tickerData: any = {};
+      if (tickerResponse.data?.retCode === 0 && 
+          tickerResponse.data?.result?.list && 
+          tickerResponse.data.result.list.length > 0) {
+        tickerData = tickerResponse.data.result.list[0];
+      }
+      
       return {
-        symbol,
-        price: '0.00',
-        indexPrice: '0.00',
-        change: '0.00%',
-        volume: '0',
-        high24h: '0.00',
-        low24h: '0.00',
-        volumeUSDT: '0',
-        marketType: 'perpetual',
-        openInterest: '0 BTC',
-        fundingRate: '0.00%',
-        nextFundingTime: Date.now() + 8 * 60 * 60 * 1000,
-        leverage: '10x',
-        markPrice: '0.00',
-        lastPrice: '0.00',
-        bidPrice: '0.00',
-        askPrice: '0.00',
-        favorite: false
+        success: true,
+        symbol: symbol.toUpperCase(),
+        fundingRate: `${fundingRate.toFixed(4)}%`,
+        fundingRateRaw: funding.fundingRate,
+        fundingRateTimestamp,
+        fundingRateDate: fundingRateTimestamp ? new Date(fundingRateTimestamp).toISOString() : null,
+        nextFundingTime,
+        nextFundingDate: nextFundingTime ? new Date(nextFundingTime).toISOString() : null,
+        tickerData: {
+          fundingRate: tickerData.fundingRate || null,
+          nextFundingTime: tickerData.nextFundingTime || null,
+          lastPrice: tickerData.lastPrice || null,
+          markPrice: tickerData.markPrice || null,
+          indexPrice: tickerData.indexPrice || null
+        },
+        rawFundingResponse: funding
+      };
+    } catch (error) {
+      this.logger.error(`Error fetching funding info: ${error.message}`);
+      return {
+        success: false,
+        error: error.message
       };
     }
   }
@@ -127,6 +195,122 @@ export class PerpetualMarketController {
     return status;
   }
 
+  @Get('complete/:symbol')
+  async getCompleteMarketInfo(@Param('symbol') symbol: string): Promise<any> {
+    this.logger.log(`Request received for complete market info: ${symbol}`);
+    
+    try {
+      const upperSymbol = symbol.toUpperCase();
+      
+      // 1. Obtener datos del ticker desde nuestro servicio
+      const ticker = this.perpetualMarketService.getPerpetualTicker(upperSymbol);
+      
+      // 2. Obtener datos de funding directamente de la API
+      const fundingResponse = await axios.get('https://api.bybit.com/v5/market/funding/history', {
+        params: {
+          category: 'linear',
+          symbol: `${upperSymbol}USDT`,
+          limit: 1
+        }
+      });
+      
+      let fundingData = null;
+      if (fundingResponse.data?.retCode === 0 && 
+          fundingResponse.data?.result?.list && 
+          fundingResponse.data.result.list.length > 0) {
+        fundingData = fundingResponse.data.result.list[0];
+      }
+      
+      // 3. Obtener datos del ticker directamente de la API
+      const tickerResponse = await axios.get('https://api.bybit.com/v5/market/tickers', {
+        params: {
+          category: 'linear',
+          symbol: `${upperSymbol}USDT`
+        }
+      });
+      
+      let tickerApiData: any = null;
+      if (tickerResponse.data?.retCode === 0 && 
+          tickerResponse.data?.result?.list && 
+          tickerResponse.data.result.list.length > 0) {
+        tickerApiData = tickerResponse.data.result.list[0];
+      }
+      
+      // Formatear los datos de funding
+      let fundingRate = 0;
+      let fundingRateTimestamp = null;
+      
+      if (fundingData) {
+        fundingRate = parseFloat(fundingData.fundingRate || '0') * 100;
+        fundingRateTimestamp = fundingData.fundingRateTimestamp ? parseInt(fundingData.fundingRateTimestamp) : null;
+      }
+      
+      // Calcular próximo tiempo de funding
+      let nextFundingTime = null;
+      
+      if (tickerApiData && tickerApiData.nextFundingTime) {
+        nextFundingTime = parseInt(tickerApiData.nextFundingTime);
+      } else if (ticker && ticker.nextFundingTime) {
+        nextFundingTime = ticker.nextFundingTime;
+      } else {
+        const now = new Date();
+        const hours = now.getUTCHours();
+        const nextFundingHour = Math.ceil(hours / 8) * 8 % 24;
+        nextFundingTime = new Date(Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate() + (nextFundingHour <= hours ? 1 : 0),
+          nextFundingHour,
+          0,
+          0
+        )).getTime();
+      }
+      
+      return {
+        success: true,
+        symbol: upperSymbol,
+        // Datos de nuestro servicio
+        serviceData: ticker || null,
+        // Datos de funding
+        funding: {
+          fundingRate: `${fundingRate.toFixed(4)}%`,
+          fundingRateRaw: fundingData?.fundingRate || '0',
+          fundingRateTimestamp,
+          fundingRateDate: fundingRateTimestamp ? new Date(fundingRateTimestamp).toISOString() : null,
+        },
+        // Datos del ticker de la API
+        ticker: tickerApiData ? {
+          symbol: tickerApiData.symbol,
+          lastPrice: tickerApiData.lastPrice,
+          markPrice: tickerApiData.markPrice,
+          indexPrice: tickerApiData.indexPrice,
+          fundingRate: tickerApiData.fundingRate,
+          nextFundingTime: tickerApiData.nextFundingTime ? parseInt(tickerApiData.nextFundingTime) : null,
+          nextFundingDate: tickerApiData.nextFundingTime ? new Date(parseInt(tickerApiData.nextFundingTime)).toISOString() : null,
+          openInterest: tickerApiData.openInterest,
+          volume24h: tickerApiData.volume24h,
+          turnover24h: tickerApiData.turnover24h,
+          price24hPcnt: tickerApiData.price24hPcnt,
+          highPrice24h: tickerApiData.highPrice24h,
+          lowPrice24h: tickerApiData.lowPrice24h,
+          bid1Price: tickerApiData.bid1Price,
+          ask1Price: tickerApiData.ask1Price
+        } : null,
+        // Datos calculados
+        calculated: {
+          nextFundingTime,
+          nextFundingDate: nextFundingTime ? new Date(nextFundingTime).toISOString() : null
+        }
+      };
+    } catch (error) {
+      this.logger.error(`Error fetching complete market info: ${error.message}`);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+  
   @Get('debug')
   async getDebugInfo() {
     this.logger.log('Request received for perpetual debug info');

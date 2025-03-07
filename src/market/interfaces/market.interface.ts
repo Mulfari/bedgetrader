@@ -30,6 +30,7 @@ export interface PerpetualMarketTicker extends BaseMarketTicker {
   openInterest: string;
   fundingRate: string;
   nextFundingTime: number;
+  fundingRateTimestamp?: number;
   leverage: string;
   markPrice: string;
   lastPrice: string;
