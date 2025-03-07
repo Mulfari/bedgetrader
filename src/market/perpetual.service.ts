@@ -76,58 +76,86 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         
         this.ws.send(JSON.stringify(subscribeMsg));
         this.logger.log(`Subscribed to perpetual markets: ${JSON.stringify(subscribeMsg)}`);
+        
+        // Cargar datos iniciales después de conectar
+        this.fetchInitialData()
+          .then(() => this.logger.log('Initial data loaded after WebSocket connection'))
+          .catch(err => this.logger.error(`Error loading initial data after WebSocket connection: ${err.message}`));
       });
 
       this.ws.on('message', (data: WebSocket.Data) => {
         try {
           const message = JSON.parse(data.toString());
-          this.logger.debug(`Received message: ${JSON.stringify(message)}`);
           
+          // Solo imprimir mensajes importantes para no saturar los logs
+          if (message.op === 'subscribe' || message.success === false) {
+            this.logger.debug(`WebSocket message: ${JSON.stringify(message)}`);
+          }
+          
+          // Ignorar mensajes que no son de datos
           if (!message.topic) return;
           
           const [msgType, ...rest] = message.topic.split('.');
           const symbolWithUsdt = rest[rest.length - 1];
           const symbol = symbolWithUsdt.replace('USDT', '');
           
-          if (!this.symbols.includes(symbol)) return;
+          // Verificar que el símbolo sea válido
+          if (!this.symbols.includes(symbol)) {
+            this.logger.warn(`Received message for unknown symbol: ${symbol}`);
+            return;
+          }
           
+          // Obtener el ticker existente
           const existingTicker = this.perpetualTickers.get(symbol);
-          if (!existingTicker) return;
+          if (!existingTicker) {
+            this.logger.warn(`No existing ticker found for ${symbol}`);
+            return;
+          }
           
+          // Crear una copia para actualizar
           let updatedTicker = { ...existingTicker };
           
+          // Procesar según el tipo de mensaje
           switch (msgType) {
             case 'tickers':
               if (message.data) {
                 const ticker = message.data;
-                const price = parseFloat(ticker.lastPrice || '0');
+                this.logger.debug(`Ticker data for ${symbol}: ${JSON.stringify(ticker)}`);
+                
+                // Actualizar propiedades del ticker
+                const price = parseFloat(ticker.lastPrice || existingTicker.price || '0');
                 const changePercent = parseFloat(ticker.price24hPcnt || '0') * 100;
                 
                 updatedTicker = {
                   ...updatedTicker,
                   price: price.toFixed(2),
                   lastPrice: price.toFixed(2),
-                  indexPrice: parseFloat(ticker.indexPrice || ticker.lastPrice || '0').toFixed(2),
-                  markPrice: parseFloat(ticker.markPrice || ticker.lastPrice || '0').toFixed(2),
+                  indexPrice: parseFloat(ticker.indexPrice || ticker.lastPrice || existingTicker.indexPrice || '0').toFixed(2),
+                  markPrice: parseFloat(ticker.markPrice || ticker.lastPrice || existingTicker.markPrice || '0').toFixed(2),
                   change: `${changePercent.toFixed(2)}%`,
-                  volume: parseFloat(ticker.volume24h || '0').toFixed(2),
-                  high24h: parseFloat(ticker.highPrice24h || '0').toFixed(2),
-                  low24h: parseFloat(ticker.lowPrice24h || '0').toFixed(2),
+                  volume: parseFloat(ticker.volume24h || existingTicker.volume || '0').toFixed(2),
+                  high24h: parseFloat(ticker.highPrice24h || existingTicker.high24h || '0').toFixed(2),
+                  low24h: parseFloat(ticker.lowPrice24h || existingTicker.low24h || '0').toFixed(2),
                   volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h || '0')),
                   openInterest: this.formatVolume(parseFloat(ticker.openInterest || '0')),
-                  bidPrice: parseFloat(ticker.bid1Price || '0').toFixed(2),
-                  askPrice: parseFloat(ticker.ask1Price || '0').toFixed(2)
+                  bidPrice: parseFloat(ticker.bid1Price || existingTicker.bidPrice || '0').toFixed(2),
+                  askPrice: parseFloat(ticker.ask1Price || existingTicker.askPrice || '0').toFixed(2)
                 };
                 
-                this.logger.debug(`Updated ticker for ${symbol}: ${JSON.stringify(updatedTicker)}`);
+                this.logger.debug(`Updated ticker for ${symbol} from WebSocket`);
               }
               break;
               
             case 'funding':
               if (message.data) {
                 const funding = message.data;
-                const fundingRate = parseFloat(funding.fundingRate) * 100;
-                const nextFundingTime = new Date(funding.nextFundingTime).getTime();
+                this.logger.debug(`Funding data for ${symbol}: ${JSON.stringify(funding)}`);
+                
+                // Actualizar propiedades de funding
+                const fundingRate = parseFloat(funding.fundingRate || '0') * 100;
+                const nextFundingTime = funding.nextFundingTime 
+                  ? new Date(funding.nextFundingTime).getTime() 
+                  : existingTicker.nextFundingTime;
                 
                 updatedTicker = {
                   ...updatedTicker,
@@ -135,23 +163,34 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
                   nextFundingTime
                 };
                 
-                this.logger.debug(`Updated funding for ${symbol}: ${JSON.stringify(updatedTicker)}`);
+                this.logger.debug(`Updated funding for ${symbol} from WebSocket`);
               }
               break;
               
             case 'orderbook':
               if (message.data && message.data.b && message.data.a) {
+                this.logger.debug(`Orderbook data for ${symbol}: ${JSON.stringify({
+                  bid: message.data.b[0],
+                  ask: message.data.a[0]
+                })}`);
+                
+                // Actualizar bid/ask
                 updatedTicker = {
                   ...updatedTicker,
-                  bidPrice: parseFloat(message.data.b[0][0]).toFixed(2),
-                  askPrice: parseFloat(message.data.a[0][0]).toFixed(2)
+                  bidPrice: parseFloat(message.data.b[0][0] || existingTicker.bidPrice || '0').toFixed(2),
+                  askPrice: parseFloat(message.data.a[0][0] || existingTicker.askPrice || '0').toFixed(2)
                 };
                 
-                this.logger.debug(`Updated orderbook for ${symbol}: ${JSON.stringify(updatedTicker)}`);
+                this.logger.debug(`Updated orderbook for ${symbol} from WebSocket`);
               }
+              break;
+              
+            default:
+              this.logger.warn(`Unknown message type: ${msgType}`);
               break;
           }
           
+          // Actualizar el ticker en el mapa
           this.perpetualTickers.set(symbol, updatedTicker);
         } catch (error) {
           this.logger.error(`Error processing WebSocket message: ${error.message}`);
@@ -222,6 +261,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         try {
           this.logger.debug(`Fetching data for ${symbol}USDT...`);
           
+          // Usar Promise.all para hacer todas las llamadas en paralelo
           const [tickerResponse, fundingResponse, orderbookResponse] = await Promise.all([
             axios.get(`https://api.bybit.com/v5/market/tickers`, {
               params: {
@@ -245,21 +285,23 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
             })
           ]);
           
-          this.logger.debug(`Responses received for ${symbol}USDT:`, {
-            ticker: tickerResponse.data,
-            funding: fundingResponse.data,
-            orderbook: orderbookResponse.data
-          });
+          // Imprimir respuestas completas para debugging
+          this.logger.debug(`Ticker response for ${symbol}USDT: ${JSON.stringify(tickerResponse.data)}`);
+          this.logger.debug(`Funding response for ${symbol}USDT: ${JSON.stringify(fundingResponse.data)}`);
+          this.logger.debug(`Orderbook response for ${symbol}USDT: ${JSON.stringify(orderbookResponse.data)}`);
           
-          if (tickerResponse.data?.result?.list?.[0]) {
-            const ticker = tickerResponse.data.result.list[0];
-            const funding = fundingResponse.data?.result?.list?.[0] || {};
-            const orderbook = orderbookResponse.data?.result || {};
+          // Extraer datos de las respuestas
+          const tickerData = tickerResponse.data?.result?.list?.[0];
+          const fundingData = fundingResponse.data?.result?.list?.[0];
+          const orderbookData = orderbookResponse.data?.result;
+          
+          if (tickerData) {
+            // Formatear datos
+            const price = parseFloat(tickerData.lastPrice || '0');
+            const changePercent = parseFloat(tickerData.price24hPcnt || '0') * 100;
+            const fundingRate = parseFloat(fundingData?.fundingRate || '0') * 100;
             
-            const price = parseFloat(ticker.lastPrice || '0');
-            const changePercent = parseFloat(ticker.price24hPcnt || '0') * 100;
-            const fundingRate = parseFloat(funding.fundingRate || '0') * 100;
-            
+            // Calcular próximo tiempo de funding (cada 8 horas: 00:00, 08:00, 16:00 UTC)
             const now = new Date();
             const hours = now.getUTCHours();
             const nextFundingHour = Math.ceil(hours / 8) * 8 % 24;
@@ -272,28 +314,32 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
               0
             )).getTime();
             
+            // Crear objeto ticker con todos los datos
             const updatedTicker: PerpetualMarketTicker = {
               symbol,
               price: price.toFixed(2),
               lastPrice: price.toFixed(2),
-              indexPrice: parseFloat(ticker.indexPrice || ticker.lastPrice || '0').toFixed(2),
-              markPrice: parseFloat(ticker.markPrice || ticker.lastPrice || '0').toFixed(2),
+              indexPrice: parseFloat(tickerData.indexPrice || tickerData.lastPrice || '0').toFixed(2),
+              markPrice: parseFloat(tickerData.markPrice || tickerData.lastPrice || '0').toFixed(2),
               change: `${changePercent.toFixed(2)}%`,
-              volume: parseFloat(ticker.volume24h || '0').toFixed(2),
-              high24h: parseFloat(ticker.highPrice24h || '0').toFixed(2),
-              low24h: parseFloat(ticker.lowPrice24h || '0').toFixed(2),
-              volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h || '0')),
+              volume: parseFloat(tickerData.volume24h || '0').toFixed(2),
+              high24h: parseFloat(tickerData.highPrice24h || '0').toFixed(2),
+              low24h: parseFloat(tickerData.lowPrice24h || '0').toFixed(2),
+              volumeUSDT: this.formatVolume(parseFloat(tickerData.turnover24h || '0')),
               marketType: 'perpetual',
-              openInterest: this.formatVolume(parseFloat(ticker.openInterest || '0')),
+              openInterest: this.formatVolume(parseFloat(tickerData.openInterest || '0')),
               fundingRate: `${fundingRate.toFixed(4)}%`,
               nextFundingTime,
               leverage: '10x',
-              bidPrice: parseFloat(orderbook.b?.[0]?.[0] || ticker.bid1Price || '0').toFixed(2),
-              askPrice: parseFloat(orderbook.a?.[0]?.[0] || ticker.ask1Price || '0').toFixed(2),
+              bidPrice: parseFloat(orderbookData?.b?.[0]?.[0] || tickerData.bid1Price || '0').toFixed(2),
+              askPrice: parseFloat(orderbookData?.a?.[0]?.[0] || tickerData.ask1Price || '0').toFixed(2),
               favorite: false
             };
             
+            // Actualizar el mapa de tickers
             this.perpetualTickers.set(symbol, updatedTicker);
+            
+            // Imprimir ticker actualizado para debugging
             this.logger.debug(`Updated initial data for ${symbol}: ${JSON.stringify(updatedTicker)}`);
           } else {
             this.logger.warn(`No initial ticker data found for ${symbol}USDT`);
@@ -302,6 +348,9 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
           this.logger.error(`Error fetching initial data for ${symbol}: ${error.message}`);
         }
       }
+      
+      // Imprimir todos los tickers para debugging
+      this.logger.log(`All perpetual tickers after initialization: ${JSON.stringify(Array.from(this.perpetualTickers.entries()))}`);
       
       this.logger.log('Initial perpetual market data fetched successfully');
     } catch (error) {
@@ -325,5 +374,12 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
 
   getPerpetualTicker(symbol: string): PerpetualMarketTicker | undefined {
     return this.perpetualTickers.get(symbol);
+  }
+  
+  getWebSocketStatus(): { connected: boolean, reconnectAttempts: number } {
+    return {
+      connected: this.wsConnected,
+      reconnectAttempts: this.reconnectAttempts
+    };
   }
 } 

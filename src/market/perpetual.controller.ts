@@ -11,22 +11,97 @@ export class PerpetualMarketController {
   @Get('tickers')
   async getPerpetualTickers(): Promise<PerpetualMarketTicker[]> {
     this.logger.log('Request received for perpetual tickers');
-    await this.perpetualMarketService.fetchPerpetualData();
+    
+    // Forzar la carga de datos iniciales
+    await this.perpetualMarketService.fetchInitialData();
+    
     const tickers = this.perpetualMarketService.getPerpetualTickers();
-    this.logger.log(`Returning ${tickers.length} perpetual tickers`);
+    this.logger.log(`Returning ${tickers.length} perpetual tickers: ${JSON.stringify(tickers)}`);
+    
+    // Verificar que los datos tengan la estructura correcta
+    if (tickers.length > 0) {
+      const firstTicker = tickers[0];
+      this.logger.debug(`Sample ticker data: ${JSON.stringify(firstTicker)}`);
+      
+      // Verificar propiedades críticas
+      if (!firstTicker.openInterest || !firstTicker.fundingRate || !firstTicker.nextFundingTime) {
+        this.logger.warn(`Missing critical properties in ticker: ${JSON.stringify({
+          openInterest: firstTicker.openInterest,
+          fundingRate: firstTicker.fundingRate,
+          nextFundingTime: firstTicker.nextFundingTime
+        })}`);
+      }
+    }
+    
     return tickers;
   }
 
   @Get('ticker/:symbol')
   async getPerpetualTicker(@Param('symbol') symbol: string): Promise<PerpetualMarketTicker | undefined> {
     this.logger.log(`Request received for perpetual ticker: ${symbol}`);
-    await this.perpetualMarketService.fetchPerpetualData();
+    
+    // Forzar la carga de datos iniciales
+    await this.perpetualMarketService.fetchInitialData();
+    
     const ticker = this.perpetualMarketService.getPerpetualTicker(symbol);
     if (ticker) {
-      this.logger.log(`Returning perpetual ticker for ${symbol}`);
+      this.logger.log(`Returning perpetual ticker for ${symbol}: ${JSON.stringify(ticker)}`);
+      
+      // Verificar propiedades críticas
+      if (!ticker.openInterest || !ticker.fundingRate || !ticker.nextFundingTime) {
+        this.logger.warn(`Missing critical properties in ticker ${symbol}: ${JSON.stringify({
+          openInterest: ticker.openInterest,
+          fundingRate: ticker.fundingRate,
+          nextFundingTime: ticker.nextFundingTime
+        })}`);
+      }
     } else {
       this.logger.warn(`Perpetual ticker not found for ${symbol}`);
     }
+    
     return ticker;
+  }
+  
+  @Get('status')
+  async getServiceStatus() {
+    this.logger.log('Request received for perpetual service status');
+    
+    // Obtener datos actuales
+    const tickers = this.perpetualMarketService.getPerpetualTickers();
+    const wsStatus = this.perpetualMarketService.getWebSocketStatus();
+    
+    // Verificar si hay datos
+    const hasData = tickers.length > 0;
+    
+    // Verificar si los datos son válidos
+    let dataStatus = 'unknown';
+    let missingProperties = [];
+    
+    if (hasData) {
+      const sampleTicker = tickers[0];
+      
+      // Verificar propiedades críticas
+      if (!sampleTicker.openInterest) missingProperties.push('openInterest');
+      if (!sampleTicker.fundingRate) missingProperties.push('fundingRate');
+      if (!sampleTicker.nextFundingTime) missingProperties.push('nextFundingTime');
+      
+      dataStatus = missingProperties.length === 0 ? 'valid' : 'incomplete';
+    }
+    
+    const status = {
+      service: 'perpetual-market',
+      timestamp: new Date().toISOString(),
+      websocket: wsStatus,
+      data: {
+        available: hasData,
+        count: tickers.length,
+        status: dataStatus,
+        missingProperties: missingProperties.length > 0 ? missingProperties : undefined,
+        sample: hasData ? tickers[0] : undefined
+      }
+    };
+    
+    this.logger.log(`Returning service status: ${JSON.stringify(status)}`);
+    return status;
   }
 } 
