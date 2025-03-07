@@ -25,7 +25,7 @@ async function bootstrap() {
     credentials: true, // Si usas cookies o headers de autenticación
   });
 
-  const port = process.env.PORT || 3000;
+  const port = process.env.PORT || 3001;
   await app.listen(port);
   console.log(`✅ Servidor corriendo en el puerto ${port}`);
 }
