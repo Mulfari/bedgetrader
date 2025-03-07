@@ -56,11 +56,32 @@ export class PerpetualMarketController {
         fundingRate: ticker.fundingRate,
         nextFundingTime: ticker.nextFundingTime
       })}`);
+      return ticker;
     } else {
-      this.logger.warn(`Perpetual ticker not found for ${symbol}`);
+      this.logger.warn(`Perpetual ticker not found for ${symbol}, returning default values`);
+      
+      // Devolver valores por defecto si no se encuentra el ticker
+      return {
+        symbol,
+        price: '0.00',
+        indexPrice: '0.00',
+        change: '0.00%',
+        volume: '0',
+        high24h: '0.00',
+        low24h: '0.00',
+        volumeUSDT: '0',
+        marketType: 'perpetual',
+        openInterest: '0 BTC',
+        fundingRate: '0.00%',
+        nextFundingTime: Date.now() + 8 * 60 * 60 * 1000,
+        leverage: '10x',
+        markPrice: '0.00',
+        lastPrice: '0.00',
+        bidPrice: '0.00',
+        askPrice: '0.00',
+        favorite: false
+      };
     }
-    
-    return ticker;
   }
   
   @Get('status')
