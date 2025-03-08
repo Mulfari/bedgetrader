@@ -6,9 +6,13 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule);
 
-  // Configurar CORS para aceptar peticiones desde cualquier origen durante el desarrollo
+  // Configurar CORS
   app.enableCors({
-    origin: true, // Esto permite cualquier origen
+    origin: [
+      'http://localhost:3000',
+      'https://edgetrader.vercel.app',
+      // Agregar otros orígenes permitidos si es necesario
+    ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
   });
@@ -19,7 +23,6 @@ async function bootstrap() {
   const port = process.env.PORT || 3001;
   await app.listen(port);
   console.log(`✅ Servidor corriendo en el puerto ${port}`);
-  console.log(`✅ API disponible en: http://localhost:${port}/api`);
 }
 
 bootstrap();
