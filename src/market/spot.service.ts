@@ -7,7 +7,7 @@ import WebSocket from 'ws';
 export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SpotMarketService.name);
   private spotTickers: Map<string, SpotMarketTicker> = new Map();
-  private readonly symbols = ['BTC', 'ETH', 'SOL', 'XRP'];
+  private readonly symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'];
   private ws: WebSocket | null = null;
   private wsConnected = false;
   private reconnectAttempts = 0;
