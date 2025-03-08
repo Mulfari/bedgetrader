@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma.service';
 import * as bcrypt from 'bcryptjs';
@@ -75,6 +75,29 @@ export class AuthService {
     } catch (error) {
       console.error("❌ Error en la validación del usuario:", error);
       throw new UnauthorizedException('Error en la autenticación.');
+    }
+  }
+
+  async getUserInfo(userId: string) {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          createdAt: true
+        }
+      });
+
+      if (!user) {
+        throw new NotFoundException('Usuario no encontrado');
+      }
+
+      return user;
+    } catch (error) {
+      console.error("❌ Error al obtener información del usuario:", error);
+      throw error;
     }
   }
 }
