@@ -15,7 +15,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private readonly RECONNECT_INTERVAL = 5000;
 
   private initializeMarketData() {
-    const initialPairs = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'];
+    const initialPairs = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'LINK', 'AVAX', 'MATIC', 'UNI', 'LTC', 'SHIB', 'ATOM', 'BNB'];
     initialPairs.forEach(symbol => {
       // Inicializar datos para spot
       this.marketData.set(`${symbol}USDT-SPOT`, {
