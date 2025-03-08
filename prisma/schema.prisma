@@ -14,6 +14,7 @@ model User {
   name        String?
   createdAt   DateTime     @default(now())
   subAccounts SubAccount[]
+  orders      Order[]
 }
 
 model SubAccount {
@@ -27,6 +28,30 @@ model SubAccount {
   isDemo    Boolean  @default(false)
   updatedAt DateTime @default(now()) @updatedAt
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders    Order[]
 
   @@index([userId])
+}
+
+model Order {
+  id           String   @id @default(uuid())
+  userId       String
+  subAccountId String
+  symbol       String
+  side         String
+  orderType    String
+  price        Float?
+  quantity     Float
+  status       String
+  marketType   String
+  orderId      String?
+  orderLinkId  String?
+  rawResponse  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subAccount   SubAccount @relation(fields: [subAccountId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([subAccountId])
 }
