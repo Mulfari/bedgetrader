@@ -73,7 +73,7 @@ export class OrdersService {
    */
   private async executeOrderInSubAccount(subAccount: any, orderParams: any) {
     try {
-      this.logger.log(`Ejecutando orden en subcuenta: ${subAccount.id} (${subAccount.name})`);
+      this.logger.log(`Ejecutando orden en subcuenta: ${subAccount.id} (${subAccount.name}), Modo: ${subAccount.isDemo ? 'DEMO' : 'REAL'}`);
 
       // Configurar proxy
       const proxyUrl = "http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001";
@@ -124,15 +124,16 @@ export class OrdersService {
       };
 
       // URL de Bybit para ejecutar órdenes
+      // Usar el endpoint de testnet si la subcuenta es demo, o el endpoint real si no lo es
       const baseUrl = subAccount.isDemo 
-        ? "https://api-demo.bybit.com"
-        : "https://api.bybit.com";
+        ? "https://api-testnet.bybit.com"  // Endpoint de testnet para cuentas demo
+        : "https://api.bybit.com";         // Endpoint real para cuentas reales
       
       const url = `${baseUrl}/v5/order/create`;
       
       this.logger.log(`Enviando solicitud a Bybit:
         - URL: ${url}
-        - Modo: ${subAccount.isDemo ? 'DEMO' : 'REAL'}
+        - Modo: ${subAccount.isDemo ? 'DEMO (Testnet)' : 'REAL'}
         - Método: POST
         - Params: ${JSON.stringify(orderRequestParams)}`);
 
@@ -153,7 +154,8 @@ export class OrdersService {
           subAccountId: subAccount.id,
           subAccountName: subAccount.name,
           error: response.data?.retMsg || 'Error desconocido',
-          errorCode: response.data?.retCode
+          errorCode: response.data?.retCode,
+          isDemo: subAccount.isDemo
         };
       }
 
@@ -168,7 +170,8 @@ export class OrdersService {
         orderType: orderType === 'limit' ? 'Limit' : 'Market',
         price: orderType === 'limit' ? parseFloat(price) : null,
         quantity: parseFloat(qty),
-        bybitResponse: response.data.result
+        bybitResponse: response.data.result,
+        isDemo: subAccount.isDemo
       };
     } catch (error) {
       this.logger.error(`Error al ejecutar orden en subcuenta ${subAccount.id}: ${error.message}`);
@@ -177,7 +180,8 @@ export class OrdersService {
         subAccountId: subAccount.id,
         subAccountName: subAccount.name,
         error: error.message,
-        errorCode: error.response?.data?.retCode
+        errorCode: error.response?.data?.retCode,
+        isDemo: subAccount.isDemo
       };
     }
   }
