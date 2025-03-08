@@ -1,7 +1,6 @@
-import { Body, Controller, HttpException, HttpStatus, Post, Get, UseGuards, Request } from '@nestjs/common';
+import { Body, Controller, HttpException, HttpStatus, Post } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { JwtService } from '@nestjs/jwt';
-import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -32,19 +31,6 @@ export class AuthController {
       };
     } else {
       throw new HttpException('Credenciales inválidas', HttpStatus.UNAUTHORIZED);
-    }
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Get('user')
-  async getUserInfo(@Request() req) {
-    try {
-      const userId = req.user.userId;
-      const userInfo = await this.authService.getUserInfo(userId);
-      return userInfo;
-    } catch (error) {
-      console.error("Error al obtener información del usuario:", error);
-      throw new HttpException('Error al obtener información del usuario', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 }

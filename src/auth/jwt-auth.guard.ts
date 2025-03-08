@@ -27,13 +27,7 @@ export class JwtAuthGuard implements CanActivate {
 
       const decoded = this.jwtService.verify(token, { secret: jwtSecret });
       console.log("✅ Token decodificado en el backend:", decoded); // ✅ Verificar que se decodifica correctamente
-      
-      // Extraer el userId del token decodificado
-      request.user = {
-        userId: decoded.sub, // El ID del usuario está en el campo 'sub'
-        email: decoded.email
-      };
-      
+      request.user = decoded;
       return true;
     } catch (error) {
       console.log("🚨 Error verificando token:", error.message);
