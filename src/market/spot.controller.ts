@@ -17,9 +17,4 @@ export class SpotMarketController {
     await this.spotMarketService.fetchSpotData();
     return this.spotMarketService.getSpotTicker(symbol);
   }
-
-  @Get('symbols')
-  getAvailableSymbols(): string[] {
-    return this.spotMarketService.getAvailableSymbols();
-  }
 } 

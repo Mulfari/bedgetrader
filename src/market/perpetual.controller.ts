@@ -195,11 +195,6 @@ export class PerpetualMarketController {
     return status;
   }
 
-  @Get('symbols')
-  getAvailableSymbols(): string[] {
-    return this.perpetualMarketService.getAvailableSymbols();
-  }
-
   @Get('complete/:symbol')
   async getCompleteMarketInfo(@Param('symbol') symbol: string): Promise<any> {
     this.logger.log(`Request received for complete market info: ${symbol}`);
