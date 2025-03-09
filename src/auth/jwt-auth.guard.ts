@@ -20,13 +20,11 @@ export class JwtAuthGuard implements CanActivate {
 
     try {
       console.log('🔹 Verificando token JWT en JwtAuthGuard');
-      console.log(`🔹 JWT_SECRET en JwtAuthGuard: ${process.env.JWT_SECRET?.substring(0, 10) || 'no definido'}`);
-
-      const jwtSecret = process.env.JWT_SECRET;
-      console.log("🔹 JWT_SECRET en JwtAuthGuard:", jwtSecret || "❌ NO DEFINIDO");
-
-      const decoded = this.jwtService.verify(token, { secret: jwtSecret });
-      console.log("✅ Token decodificado en el backend:", decoded); // ✅ Verificar que se decodifica correctamente
+      
+      // Usar directamente el JwtService para verificar el token
+      // El JwtService ya tiene configurado el secreto correcto
+      const decoded = this.jwtService.verify(token);
+      console.log("✅ Token decodificado en el backend:", decoded);
       request.user = decoded;
       return true;
     } catch (error) {
