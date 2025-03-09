@@ -55,26 +55,26 @@ export class AuthService {
 
   async validateUser(email: string, password: string) {
     try {
+      console.log("🔹 Validando usuario:", email);
+      
       const user = await this.prisma.user.findUnique({ where: { email } });
 
       if (!user) {
         console.error("❌ Usuario no encontrado:", email);
-        throw new UnauthorizedException('Usuario no encontrado');
+        return null;
       }
 
       const isPasswordValid = await this.comparePasswords(password, user.password);
       if (!isPasswordValid) {
         console.error("❌ Contraseña incorrecta para el usuario:", email);
-        throw new UnauthorizedException('Credenciales inválidas');
+        return null;
       }
 
-      const token = await this.generateToken(user);
       console.log("✅ Usuario autenticado:", { id: user.id, email: user.email });
-
-      return { id: user.id, email: user.email, token };
+      return { id: user.id, email: user.email };
     } catch (error) {
       console.error("❌ Error en la validación del usuario:", error);
-      throw new UnauthorizedException('Error en la autenticación.');
+      return null;
     }
   }
 }
