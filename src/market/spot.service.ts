@@ -238,65 +238,104 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
 
   async fetchSpotData(): Promise<void> {
     try {
-      this.logger.log('Fetching latest spot market data...');
+      this.logger.log('Fetching latest spot market data directly from Bybit API...');
       
-      // Obtener datos para todos los símbolos en paralelo
-      const fetchPromises = this.symbols.map(async (symbol) => {
-        try {
-          const response = await axios.get(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${symbol}USDT`);
-          
-          if (response.data && response.data.result && response.data.result.list && response.data.result.list.length > 0) {
-            const ticker = response.data.result.list[0];
-            
-            // Actualizar el ticker con los datos más recientes
-            const existingTicker = this.spotTickers.get(symbol) || {
-              symbol,
-              marketType: 'spot',
-              favorite: false
-            };
-            
-            const price = parseFloat(ticker.lastPrice);
-            const changePercent = parseFloat(ticker.price24hPcnt) * 100;
-            
-            this.spotTickers.set(symbol, {
-              ...existingTicker,
-              price: price.toFixed(2),
-              indexPrice: price.toFixed(2),
-              change: `${changePercent.toFixed(2)}%`,
-              volume: parseFloat(ticker.volume24h).toFixed(2),
-              high24h: parseFloat(ticker.highPrice24h).toFixed(2),
-              low24h: parseFloat(ticker.lowPrice24h).toFixed(2),
-              volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h)),
-              bidPrice: parseFloat(ticker.bid1Price).toFixed(2),
-              askPrice: parseFloat(ticker.ask1Price).toFixed(2)
-            });
-            
-            // Log para depuración
-            if (symbol === 'BTC') {
-              this.logger.debug(`Updated BTC ticker via REST API: price=${price.toFixed(2)}, change=${changePercent.toFixed(2)}%`);
-            }
-          } else {
-            this.logger.warn(`No ticker data found for ${symbol}USDT in REST API response`);
-          }
-        } catch (error) {
-          this.logger.error(`Error fetching data for ${symbol} via REST API: ${error.message}`);
+      // Obtener todos los tickers en una sola llamada
+      const response = await axios.get('https://api.bybit.com/v5/market/tickers?category=spot');
+      
+      if (!response.data || !response.data.result || !response.data.result.list) {
+        this.logger.error('Invalid response format from Bybit API');
+        return;
+      }
+      
+      const tickers = response.data.result.list;
+      this.logger.log(`Received ${tickers.length} tickers from Bybit API`);
+      
+      // Procesar cada ticker
+      for (const ticker of tickers) {
+        // Extraer el símbolo sin USDT
+        const symbolWithUsdt = ticker.symbol;
+        if (!symbolWithUsdt.endsWith('USDT')) continue;
+        
+        const symbol = symbolWithUsdt.replace('USDT', '');
+        
+        // Verificar si es uno de nuestros símbolos de interés
+        if (!this.symbols.includes(symbol)) continue;
+        
+        // Actualizar el ticker
+        const existingTicker = this.spotTickers.get(symbol) || {
+          symbol,
+          marketType: 'spot',
+          favorite: false
+        };
+        
+        const price = parseFloat(ticker.lastPrice);
+        const changePercent = parseFloat(ticker.price24hPcnt) * 100;
+        
+        // Log para depuración
+        this.logger.debug(`Updating ${symbol} ticker: price=${price}, change=${changePercent.toFixed(2)}%`);
+        
+        // Si es BTC, mostrar más detalles
+        if (symbol === 'BTC') {
+          this.logger.log(`BTC ticker details: lastPrice=${ticker.lastPrice}, price24hPcnt=${ticker.price24hPcnt}, volume24h=${ticker.volume24h}`);
         }
-      });
+        
+        this.spotTickers.set(symbol, {
+          ...existingTicker,
+          price: price.toFixed(2),
+          indexPrice: price.toFixed(2),
+          change: `${changePercent.toFixed(2)}%`,
+          volume: parseFloat(ticker.volume24h).toFixed(2),
+          high24h: parseFloat(ticker.highPrice24h).toFixed(2),
+          low24h: parseFloat(ticker.lowPrice24h).toFixed(2),
+          volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h)),
+          bidPrice: parseFloat(ticker.bid1Price).toFixed(2),
+          askPrice: parseFloat(ticker.ask1Price).toFixed(2)
+        });
+      }
       
-      // Esperar a que todas las solicitudes se completen
-      await Promise.all(fetchPromises);
+      // Verificar si se actualizaron los datos
+      const btcTicker = this.spotTickers.get('BTC');
+      if (btcTicker) {
+        this.logger.log(`BTC ticker after update: price=${btcTicker.price}, change=${btcTicker.change}`);
+      }
       
-      this.logger.log('Spot market data updated successfully via REST API');
+      this.logger.log('Spot market data updated successfully');
     } catch (error) {
-      this.logger.error(`Error updating spot market data via REST API: ${error.message}`);
+      this.logger.error(`Error updating spot market data: ${error.message}`);
+      if (error.response) {
+        this.logger.error(`API response error: ${JSON.stringify(error.response.data)}`);
+      }
     }
   }
 
-  getSpotTickers(): SpotMarketTicker[] {
-    return Array.from(this.spotTickers.values());
+  async getSpotTickers(): Promise<SpotMarketTicker[]> {
+    // Forzar una actualización de datos antes de devolver los tickers
+    try {
+      await this.fetchSpotData();
+    } catch (error) {
+      this.logger.error(`Error updating data before returning tickers: ${error.message}`);
+    }
+    
+    const tickers = Array.from(this.spotTickers.values());
+    this.logger.log(`Returning ${tickers.length} spot tickers, first ticker price: ${tickers.length > 0 ? tickers[0].price : 'N/A'}`);
+    return tickers;
   }
 
-  getSpotTicker(symbol: string): SpotMarketTicker | undefined {
-    return this.spotTickers.get(symbol);
+  async getSpotTicker(symbol: string): Promise<SpotMarketTicker | undefined> {
+    // Forzar una actualización de datos antes de devolver el ticker
+    try {
+      await this.fetchSpotData();
+    } catch (error) {
+      this.logger.error(`Error updating data before returning ticker for ${symbol}: ${error.message}`);
+    }
+    
+    const ticker = this.spotTickers.get(symbol);
+    if (ticker) {
+      this.logger.log(`Returning ticker for ${symbol} with price: ${ticker.price}`);
+    } else {
+      this.logger.warn(`Ticker not found for symbol: ${symbol}`);
+    }
+    return ticker;
   }
 } 
