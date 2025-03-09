@@ -293,7 +293,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         if (error.response && error.response.status === 403) {
           this.logger.error(`API access forbidden (403). Posible IP restriction or rate limiting. Will rely on WebSocket data.`);
           // No intentar más solicitudes HTTP si hay un error 403
-          return;
+          throw new Error('API access forbidden (403)');
         }
       }
       
@@ -459,6 +459,21 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
     // Si tenemos conexión WebSocket activa y no hay valores en 0, no necesitamos hacer fetch
     if (this.wsConnected && !hasZeroValues) {
       return;
+    }
+    
+    // Verificar si la API está accesible antes de intentar obtener datos
+    try {
+      // Hacer una solicitud de prueba para verificar si la API está accesible
+      await axios.get('https://api.bybit.com/v5/market/tickers', {
+        params: { category: 'linear', symbol: 'BTCUSDT' },
+        timeout: 5000
+      });
+    } catch (error) {
+      // Si hay un error 403, no intentar obtener datos mediante REST API
+      if (error.response && error.response.status === 403) {
+        this.logger.warn('API access forbidden (403). Cannot fetch data via REST API. Will rely on WebSocket data.');
+        return;
+      }
     }
     
     // Si no hay WebSocket o hay valores en 0, intentamos obtener datos mediante REST API
