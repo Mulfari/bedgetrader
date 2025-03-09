@@ -13,6 +13,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
   private reconnectAttempts = 0;
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
   private reconnectTimeout: NodeJS.Timeout | null = null;
+  private orderbookUpdateInterval: NodeJS.Timeout | null = null;
 
   constructor() {
     // Inicializar los tickers con valores mínimos
@@ -68,13 +69,14 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         });
       });
       
-      // Cargar datos iniciales
+      // Obtener datos iniciales mediante REST API
       await this.fetchInitialData();
       
-      // Conectar WebSocket
+      // Iniciar conexión WebSocket
       this.connectWebSocket();
       
-      this.logger.log('PerpetualMarketService initialized successfully');
+      // Iniciar actualización periódica de los precios de compra/venta
+      this.startOrderbookUpdates();
     } catch (error) {
       this.logger.error(`Error initializing PerpetualMarketService: ${error.message}`);
     }
@@ -82,149 +84,102 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
 
   onModuleDestroy() {
     this.closeWebSocket();
+    
+    // Limpiar el intervalo de actualización de orderbook
+    if (this.orderbookUpdateInterval) {
+      clearInterval(this.orderbookUpdateInterval);
+      this.orderbookUpdateInterval = null;
+    }
   }
 
   private connectWebSocket() {
     try {
-      this.logger.log('Connecting to Bybit WebSocket for perpetual markets...');
+      this.logger.log('Connecting to Bybit WebSocket...');
       this.ws = new WebSocket('wss://stream.bybit.com/v5/public/linear');
 
       this.ws.on('open', () => {
         this.wsConnected = true;
         this.reconnectAttempts = 0;
-        this.logger.log('WebSocket connection established for perpetual markets');
+        this.logger.log('WebSocket connection established');
         
-        // Suscribirse solo a los tickers para simplificar
+        // Suscribirse a los tickers de futuros perpetuos
         const symbols = this.symbols.map(symbol => `${symbol}USDT`);
         const subscribeMsg = {
-          req_id: "perpetual_subscription",
           op: 'subscribe',
-          args: symbols.map(symbol => `tickers.${symbol}`)
+          args: [
+            ...symbols.map(symbol => `tickers.${symbol}`),
+            ...symbols.map(symbol => `orderbook.1.${symbol}`)
+          ]
         };
         
         this.ws.send(JSON.stringify(subscribeMsg));
-        this.logger.log(`Subscribed to perpetual tickers: ${JSON.stringify(subscribeMsg)}`);
-        
-        // Configurar heartbeat cada 20 segundos para mantener la conexión activa
-        const heartbeatInterval = setInterval(() => {
-          if (this.ws && this.wsConnected) {
-            const pingMsg = {
-              req_id: "perpetual_heartbeat",
-              op: "ping"
-            };
-            this.ws.send(JSON.stringify(pingMsg));
-            this.logger.debug("Sent heartbeat ping to WebSocket");
-          } else {
-            clearInterval(heartbeatInterval);
-          }
-        }, 20000);
-        
-        // Cargar datos iniciales después de conectar
-        this.fetchInitialData()
-          .then(() => {
-            this.logger.log('Initial data loaded after WebSocket connection');
-          })
-          .catch(err => this.logger.error(`Error loading initial data: ${err.message}`));
       });
 
       this.ws.on('message', (data: WebSocket.Data) => {
         try {
           const message = JSON.parse(data.toString());
           
-          // Manejar respuesta de ping (pong)
-          if (message.op === "ping" || message.ret_msg === "pong") {
-            this.logger.debug(`Received pong: ${JSON.stringify(message)}`);
-            return;
-          }
-          
-          // Manejar respuesta de suscripción
-          if (message.op === "subscribe") {
-            this.logger.log(`Subscription response: ${JSON.stringify(message)}`);
-            return;
-          }
-          
-          // Imprimir el mensaje completo para diagnóstico
-          this.logger.log(`Received WebSocket message: ${JSON.stringify(message)}`);
-          
-          // Ignorar mensajes que no son de datos
-          if (!message.topic) return;
-          
-          // Imprimir el topic para diagnóstico
-          this.logger.log(`Message topic: ${message.topic}`);
-          
-          const [msgType, ...rest] = message.topic.split('.');
-          const symbolWithUsdt = rest.join('.');
-          const symbol = symbolWithUsdt.replace('USDT', '');
-          
-          this.logger.log(`Extracted symbol: ${symbol} from ${symbolWithUsdt}`);
-          
-          // Verificar que el símbolo sea válido
-          if (!this.symbols.includes(symbol)) {
-            this.logger.warn(`Received message for unknown symbol: ${symbolWithUsdt}, extracted: ${symbol}`);
-            return;
-          }
-          
-          // Obtener el ticker existente
-          const existingTicker = this.perpetualTickers.get(symbol);
-          if (!existingTicker) {
-            this.logger.warn(`No existing ticker found for ${symbol}`);
-            return;
-          }
-          
-          // Procesar según el tipo de mensaje
-          if (msgType === 'tickers' && message.data) {
-            // Verificar si message.data es un array
-            const ticker = Array.isArray(message.data) ? message.data[0] : message.data;
-            this.logger.log(`Ticker data for ${symbol}: ${JSON.stringify(ticker)}`);
+          // Procesar datos de ticker
+          if (message.topic && message.topic.startsWith('tickers.') && message.data) {
+            const ticker = message.data;
+            const symbolWithUsdt = message.topic.split('.')[1];
+            const symbol = symbolWithUsdt.replace('USDT', '');
             
-            // Verificar si ticker tiene los campos necesarios
-            if (!ticker || !ticker.lastPrice) {
-              this.logger.warn(`Invalid ticker data for ${symbol}: ${JSON.stringify(ticker)}`);
-              return;
-            }
-            
-            // Imprimir específicamente el openInterest
-            if (ticker.openInterest) {
-              this.logger.log(`${symbol} WebSocket openInterest: ${ticker.openInterest} (type: ${typeof ticker.openInterest})`);
-            } else {
-              this.logger.warn(`${symbol} WebSocket ticker does not have openInterest property`);
-            }
-            
-            // Actualizar propiedades del ticker
-            const price = parseFloat(ticker.lastPrice || existingTicker.price || '0');
-            const changePercent = parseFloat(ticker.price24hPcnt || '0') * 100;
-            
-            // Procesar el openInterest correctamente
-            let formattedOpenInterest = existingTicker.openInterest;
-            if (ticker.openInterest) {
-              const openInterestValue = parseFloat(ticker.openInterest);
-              if (!isNaN(openInterestValue) && openInterestValue > 0) {
-                formattedOpenInterest = this.formatVolume(openInterestValue) + ' ' + symbol;
-              } else {
-                // Si no podemos parsear el valor, mantenemos el valor existente
-                formattedOpenInterest = existingTicker.openInterest;
+            if (this.symbols.includes(symbol)) {
+              // Actualizar el ticker
+              const existingTicker = this.perpetualTickers.get(symbol);
+              if (existingTicker) {
+                // Verificar que los campos necesarios existan
+                if (ticker.lastPrice) {
+                  const price = parseFloat(ticker.lastPrice);
+                  const changePercent = ticker.price24hPcnt ? parseFloat(ticker.price24hPcnt) * 100 : 0;
+                  
+                  // Actualizar el ticker con los nuevos datos
+                  this.perpetualTickers.set(symbol, {
+                    ...existingTicker,
+                    price: price.toFixed(2),
+                    lastPrice: price.toFixed(2),
+                    markPrice: ticker.markPrice ? parseFloat(ticker.markPrice).toFixed(2) : existingTicker.markPrice,
+                    indexPrice: ticker.indexPrice ? parseFloat(ticker.indexPrice).toFixed(2) : existingTicker.indexPrice,
+                    change: `${changePercent.toFixed(2)}%`,
+                    volume: ticker.volume24h ? parseFloat(ticker.volume24h).toFixed(2) : existingTicker.volume,
+                    high24h: ticker.highPrice24h ? parseFloat(ticker.highPrice24h).toFixed(2) : existingTicker.high24h,
+                    low24h: ticker.lowPrice24h ? parseFloat(ticker.lowPrice24h).toFixed(2) : existingTicker.low24h,
+                    volumeUSDT: ticker.turnover24h ? this.formatVolume(parseFloat(ticker.turnover24h)) : existingTicker.volumeUSDT,
+                    openInterest: ticker.openInterest ? `${parseFloat(ticker.openInterest).toFixed(2)} ${symbol}` : existingTicker.openInterest,
+                    fundingRate: ticker.fundingRate ? `${(parseFloat(ticker.fundingRate) * 100).toFixed(4)}%` : existingTicker.fundingRate,
+                    nextFundingTime: ticker.nextFundingTime || existingTicker.nextFundingTime,
+                    bidPrice: ticker.bid1Price ? parseFloat(ticker.bid1Price).toFixed(2) : existingTicker.bidPrice,
+                    askPrice: ticker.ask1Price ? parseFloat(ticker.ask1Price).toFixed(2) : existingTicker.askPrice
+                  });
+                }
               }
             }
-            
-            const updatedTicker = {
-              ...existingTicker,
-              price: price.toFixed(2),
-              lastPrice: price.toFixed(2),
-              indexPrice: parseFloat(ticker.indexPrice || ticker.lastPrice || existingTicker.indexPrice || '0').toFixed(2),
-              markPrice: parseFloat(ticker.markPrice || ticker.lastPrice || existingTicker.markPrice || '0').toFixed(2),
-              change: `${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%`,
-              volume: parseFloat(ticker.volume24h || existingTicker.volume || '0').toFixed(2),
-              high24h: parseFloat(ticker.highPrice24h || existingTicker.high24h || '0').toFixed(2),
-              low24h: parseFloat(ticker.lowPrice24h || existingTicker.low24h || '0').toFixed(2),
-              volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h || '0')),
-              openInterest: formattedOpenInterest,
-              bidPrice: parseFloat(ticker.bid1Price || existingTicker.bidPrice || '0').toFixed(2),
-              askPrice: parseFloat(ticker.ask1Price || existingTicker.askPrice || '0').toFixed(2)
-            };
-            
-            // Actualizar el ticker en el mapa
-            this.perpetualTickers.set(symbol, updatedTicker);
-            this.logger.log(`Updated ticker for ${symbol} from WebSocket: price=${updatedTicker.price}, openInterest=${updatedTicker.openInterest}`);
+          }
+          
+          // Procesar datos de orderbook
+          if (message.topic && message.topic.startsWith('orderbook.') && message.data) {
+            const orderbook = message.data;
+            const parts = message.topic.split('.');
+            if (parts.length >= 3) {
+              const symbolWithUsdt = parts[2];
+              const symbol = symbolWithUsdt.replace('USDT', '');
+              
+              if (this.symbols.includes(symbol)) {
+                // Actualizar el ticker con los mejores precios
+                const existingTicker = this.perpetualTickers.get(symbol);
+                if (existingTicker && orderbook.b && orderbook.b.length > 0 && orderbook.a && orderbook.a.length > 0) {
+                  const bidPrice = parseFloat(orderbook.b[0][0]).toFixed(2);
+                  const askPrice = parseFloat(orderbook.a[0][0]).toFixed(2);
+                  
+                  this.perpetualTickers.set(symbol, {
+                    ...existingTicker,
+                    bidPrice,
+                    askPrice
+                  });
+                }
+              }
+            }
           }
         } catch (error) {
           this.logger.error(`Error processing WebSocket message: ${error.message}`);
@@ -277,7 +232,6 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         };
         
         this.ws.send(JSON.stringify(unsubscribeMsg));
-        this.logger.log('Sent unsubscribe message before closing WebSocket');
       } catch (error) {
         this.logger.error(`Error sending unsubscribe message: ${error.message}`);
       }
@@ -286,7 +240,6 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
       this.ws.terminate();
       this.ws = null;
       this.wsConnected = false;
-      this.logger.log('WebSocket connection closed');
     }
     
     if (this.reconnectTimeout) {
@@ -311,181 +264,144 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
 
   async fetchInitialData(): Promise<void> {
     try {
-      this.logger.log('Fetching initial perpetual market data from Bybit API...');
+      this.logger.log('Fetching initial perpetual market data...');
       
-      // Obtener todos los tickers en una sola llamada
-      const allTickersResponse = await axios.get('https://api.bybit.com/v5/market/tickers', {
-        params: {
-          category: 'linear'
-        }
-      });
+      // Contador de símbolos con datos válidos
+      let validDataCount = 0;
       
-      // Verificar si la respuesta es válida
-      if (allTickersResponse.data?.retCode !== 0) {
-        this.logger.error(`Error from Bybit API: ${allTickersResponse.data?.retMsg || 'Unknown error'}`);
-        return;
-      }
-      
-      // Imprimir la estructura de la respuesta para diagnóstico
-      if (allTickersResponse.data?.result) {
-        this.logger.log(`Response structure: ${JSON.stringify({
-          retCode: allTickersResponse.data.retCode,
-          retMsg: allTickersResponse.data.retMsg,
-          result: {
-            category: allTickersResponse.data.result.category,
-            list: Array.isArray(allTickersResponse.data.result.list) 
-              ? `Array with ${allTickersResponse.data.result.list.length} items` 
-              : typeof allTickersResponse.data.result.list
-          }
-        })}`);
-        
-        // Imprimir el primer ticker para diagnóstico
-        if (Array.isArray(allTickersResponse.data.result.list) && allTickersResponse.data.result.list.length > 0) {
-          const sampleTicker = allTickersResponse.data.result.list[0];
-          this.logger.log(`Sample ticker: ${JSON.stringify(sampleTicker)}`);
-          
-          // Imprimir específicamente el openInterest
-          if (sampleTicker.openInterest) {
-            this.logger.log(`Sample openInterest: ${sampleTicker.openInterest} (type: ${typeof sampleTicker.openInterest})`);
-          } else {
-            this.logger.warn('Sample ticker does not have openInterest property');
-          }
+      // Procesar cada símbolo
+      for (const symbol of this.symbols) {
+        try {
+          // Intentar obtener datos para este símbolo
+          await this.fetchSymbolData(symbol);
+          validDataCount++;
+        } catch (error) {
+          this.logger.error(`Error processing ${symbol}USDT: ${error.message}`);
         }
       }
       
-      if (allTickersResponse.data?.result?.list && Array.isArray(allTickersResponse.data.result.list)) {
-        const allTickers = allTickersResponse.data.result.list;
-        
-        // Procesar cada símbolo
-        for (const symbol of this.symbols) {
-          try {
-            // Buscar el ticker correspondiente
-            const ticker = allTickers.find(t => t.symbol === `${symbol}USDT`);
-            
-            if (ticker) {
-              this.logger.log(`Found ticker for ${symbol}: ${JSON.stringify(ticker)}`);
-              
-              // Imprimir específicamente el openInterest
-              if (ticker.openInterest) {
-                this.logger.log(`${symbol} openInterest: ${ticker.openInterest} (type: ${typeof ticker.openInterest})`);
-              } else {
-                this.logger.warn(`${symbol} ticker does not have openInterest property`);
-              }
-              
-              // Obtener datos de funding directamente del ticker
-              let fundingRate = 0;
-              let nextFundingTime = 0;
-              
-              // Verificar si el ticker tiene los datos de funding
-              if (ticker.fundingRate) {
-                fundingRate = parseFloat(ticker.fundingRate) * 100;
-                this.logger.log(`${symbol} fundingRate from ticker: ${ticker.fundingRate} (${fundingRate.toFixed(4)}%)`);
-              } else {
-                this.logger.warn(`${symbol} ticker does not have fundingRate property, using API fallback`);
-                
-                // Fallback: Obtener datos de funding desde la API
-                try {
-                  const fundingResponse = await axios.get('https://api.bybit.com/v5/market/funding/history', {
-                    params: {
-                      category: 'linear',
-                      symbol: `${symbol}USDT`,
-                      limit: 1
-                    }
-                  });
-                  
-                  // Verificar si la respuesta de funding es válida
-                  if (fundingResponse.data?.retCode !== 0) {
-                    this.logger.error(`Error from Bybit API (funding): ${fundingResponse.data?.retMsg || 'Unknown error'}`);
-                  } else {
-                    const funding = fundingResponse.data?.result?.list?.[0] || {};
-                    fundingRate = parseFloat(funding.fundingRate || '0') * 100;
-                    
-                    // Imprimir la respuesta de funding para diagnóstico
-                    this.logger.debug(`Funding response for ${symbol}: ${JSON.stringify(funding)}`);
-                  }
-                } catch (error) {
-                  this.logger.error(`Error fetching funding data: ${error.message}`);
-                }
-              }
-              
-              // Obtener nextFundingTime
-              if (ticker.nextFundingTime) {
-                nextFundingTime = parseInt(ticker.nextFundingTime);
-                this.logger.log(`${symbol} nextFundingTime from ticker: ${ticker.nextFundingTime}`);
-              } else {
-                this.logger.warn(`${symbol} ticker does not have nextFundingTime property, calculating manually`);
-                
-                // Calcular próximo tiempo de funding (cada 8 horas: 00:00, 08:00, 16:00 UTC)
-                const now = new Date();
-                const hours = now.getUTCHours();
-                const nextFundingHour = Math.ceil(hours / 8) * 8 % 24;
-                nextFundingTime = new Date(Date.UTC(
-                  now.getUTCFullYear(),
-                  now.getUTCMonth(),
-                  now.getUTCDate() + (nextFundingHour <= hours ? 1 : 0),
-                  nextFundingHour,
-                  0,
-                  0
-                )).getTime();
-              }
-              
-              // Formatear los datos
-              const price = parseFloat(ticker.lastPrice || '0');
-              const changePercent = parseFloat(ticker.price24hPcnt || '0') * 100;
-              
-              // Procesar el openInterest correctamente
-              let formattedOpenInterest = '0 ' + symbol;
-              if (ticker.openInterest) {
-                const openInterestValue = parseFloat(ticker.openInterest);
-                if (!isNaN(openInterestValue) && openInterestValue > 0) {
-                  formattedOpenInterest = this.formatVolume(openInterestValue) + ' ' + symbol;
-                } else {
-                  // Si no podemos parsear el valor, usamos el valor original
-                  formattedOpenInterest = ticker.openInterest + ' ' + symbol;
-                }
-              }
-              
-              // Crear objeto ticker con todos los datos
-              const updatedTicker: PerpetualMarketTicker = {
-                symbol,
-                price: price.toFixed(2),
-                lastPrice: price.toFixed(2),
-                indexPrice: parseFloat(ticker.indexPrice || ticker.lastPrice || '0').toFixed(2),
-                markPrice: parseFloat(ticker.markPrice || ticker.lastPrice || '0').toFixed(2),
-                change: `${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%`,
-                volume: parseFloat(ticker.volume24h || '0').toFixed(2),
-                high24h: parseFloat(ticker.highPrice24h || '0').toFixed(2),
-                low24h: parseFloat(ticker.lowPrice24h || '0').toFixed(2),
-                volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h || '0')),
-                marketType: 'perpetual',
-                openInterest: formattedOpenInterest,
-                fundingRate: `${fundingRate.toFixed(4)}%`,
-                nextFundingTime,
-                leverage: '10x',
-                bidPrice: parseFloat(ticker.bid1Price || '0').toFixed(2),
-                askPrice: parseFloat(ticker.ask1Price || '0').toFixed(2),
-                favorite: false
-              };
-              
-              // Actualizar el ticker en el mapa
-              this.perpetualTickers.set(symbol, updatedTicker);
-              
-              // Imprimir el ticker actualizado para diagnóstico
-              this.logger.log(`Updated ticker for ${symbol}: price=${updatedTicker.price}, openInterest=${updatedTicker.openInterest}`);
-            } else {
-              this.logger.warn(`No ticker found for ${symbol}USDT in the response`);
-            }
-          } catch (error) {
-            this.logger.error(`Error processing data for ${symbol}: ${error.message}`);
-          }
-        }
-      } else {
-        this.logger.error('Invalid response format from Bybit API');
-      }
+      this.logger.log(`Initial perpetual market data fetched successfully for ${validDataCount}/${this.symbols.length} symbols`);
       
-      this.logger.log('Initial perpetual market data fetched successfully');
+      // Si no se obtuvieron datos válidos para ningún símbolo, lanzar un error
+      if (validDataCount === 0) {
+        throw new Error('No valid data obtained for any symbol');
+      }
     } catch (error) {
       this.logger.error(`Error fetching initial perpetual market data: ${error.message}`);
+    }
+  }
+  
+  // Método auxiliar para obtener datos de un símbolo específico
+  private async fetchSymbolData(symbol: string): Promise<void> {
+    // Intentar hasta 3 veces si hay errores
+    let attempts = 0;
+    let success = false;
+    
+    while (attempts < 3 && !success) {
+      try {
+        // Obtener datos del ticker
+        const tickerResponse = await axios.get(`https://api.bybit.com/v5/market/tickers`, {
+          params: {
+            category: 'linear',
+            symbol: `${symbol}USDT`
+          },
+          timeout: 5000 // Timeout de 5 segundos
+        });
+        
+        if (!tickerResponse.data?.result?.list?.[0]) {
+          this.logger.warn(`No ticker data found for ${symbol}USDT`);
+          attempts++;
+          continue;
+        }
+        
+        const ticker = tickerResponse.data.result.list[0];
+        
+        // Obtener datos de funding
+        const fundingResponse = await axios.get(`https://api.bybit.com/v5/market/funding/history`, {
+          params: {
+            category: 'linear',
+            symbol: `${symbol}USDT`,
+            limit: 1
+          },
+          timeout: 5000
+        });
+        
+        // Obtener datos del orderbook
+        const orderbookResponse = await axios.get(`https://api.bybit.com/v5/market/orderbook`, {
+          params: {
+            category: 'linear',
+            symbol: `${symbol}USDT`,
+            limit: 1
+          },
+          timeout: 5000
+        });
+        
+        // Formatear los datos
+        const price = parseFloat(ticker.lastPrice);
+        const changePercent = parseFloat(ticker.price24hPcnt) * 100;
+        const fundingRate = fundingResponse.data?.result?.list?.[0]?.fundingRate 
+          ? parseFloat(fundingResponse.data.result.list[0].fundingRate) * 100 
+          : 0;
+        
+        // Verificar que el precio sea válido
+        if (isNaN(price) || price <= 0) {
+          this.logger.warn(`Invalid price for ${symbol}USDT: ${price}`);
+          attempts++;
+          continue;
+        }
+        
+        // Obtener los mejores precios del orderbook
+        let bidPrice = '0.00';
+        let askPrice = '0.00';
+        
+        if (orderbookResponse.data?.result?.b?.[0]?.[0]) {
+          bidPrice = parseFloat(orderbookResponse.data.result.b[0][0]).toFixed(2);
+        }
+        
+        if (orderbookResponse.data?.result?.a?.[0]?.[0]) {
+          askPrice = parseFloat(orderbookResponse.data.result.a[0][0]).toFixed(2);
+        }
+        
+        // Si no se pudieron obtener los precios del orderbook, usar el precio actual como respaldo
+        if (bidPrice === '0.00' || askPrice === '0.00') {
+          bidPrice = (price * 0.999).toFixed(2); // 0.1% menos que el precio actual
+          askPrice = (price * 1.001).toFixed(2); // 0.1% más que el precio actual
+        }
+        
+        // Actualizar el ticker
+        this.perpetualTickers.set(symbol, {
+          symbol,
+          price: price.toFixed(2),
+          lastPrice: price.toFixed(2),
+          markPrice: ticker.markPrice ? parseFloat(ticker.markPrice).toFixed(2) : '0.00',
+          indexPrice: ticker.indexPrice ? parseFloat(ticker.indexPrice).toFixed(2) : '0.00',
+          change: `${changePercent.toFixed(2)}%`,
+          volume: ticker.volume24h ? parseFloat(ticker.volume24h).toFixed(2) : '0',
+          high24h: ticker.highPrice24h ? parseFloat(ticker.highPrice24h).toFixed(2) : '0.00',
+          low24h: ticker.lowPrice24h ? parseFloat(ticker.lowPrice24h).toFixed(2) : '0.00',
+          volumeUSDT: ticker.turnover24h ? this.formatVolume(parseFloat(ticker.turnover24h)) : '0',
+          marketType: 'perpetual',
+          openInterest: ticker.openInterest ? `${parseFloat(ticker.openInterest).toFixed(2)} ${symbol}` : `0 ${symbol}`,
+          fundingRate: `${fundingRate.toFixed(4)}%`,
+          nextFundingTime: ticker.nextFundingTime || Date.now() + 8 * 60 * 60 * 1000,
+          fundingRateTimestamp: fundingResponse.data?.result?.list?.[0]?.timestamp,
+          leverage: '10x',
+          bidPrice,
+          askPrice,
+          favorite: false
+        });
+        
+        success = true;
+      } catch (error) {
+        this.logger.error(`Error fetching data for ${symbol}USDT (attempt ${attempts + 1}): ${error.message}`);
+        attempts++;
+        // Esperar un poco antes de reintentar
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    if (!success) {
+      throw new Error(`Failed to fetch data for ${symbol}USDT after ${attempts} attempts`);
     }
   }
 
@@ -512,5 +428,69 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
       connected: this.wsConnected,
       reconnectAttempts: this.reconnectAttempts
     };
+  }
+
+  private startOrderbookUpdates(): void {
+    // Actualizar los precios de compra/venta cada 30 segundos
+    this.orderbookUpdateInterval = setInterval(() => {
+      this.updateOrderbookPrices().catch(error => {
+        this.logger.error(`Error in orderbook update interval: ${error.message}`);
+      });
+    }, 30000); // 30 segundos
+  }
+  
+  private async updateOrderbookPrices(): Promise<void> {
+    // Actualizar los precios de compra/venta para los símbolos más populares
+    const popularSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'];
+    
+    for (const symbol of popularSymbols) {
+      try {
+        const { bidPrice, askPrice } = await this.fetchOrderbook(symbol);
+        
+        // Actualizar el ticker si los precios son válidos
+        if (bidPrice !== '0.00' && askPrice !== '0.00') {
+          const existingTicker = this.perpetualTickers.get(symbol);
+          if (existingTicker) {
+            this.perpetualTickers.set(symbol, {
+              ...existingTicker,
+              bidPrice,
+              askPrice
+            });
+          }
+        }
+      } catch (error) {
+        this.logger.error(`Error updating orderbook prices for ${symbol}: ${error.message}`);
+      }
+    }
+  }
+  
+  private async fetchOrderbook(symbol: string): Promise<{ bidPrice: string, askPrice: string }> {
+    try {
+      const orderbookResponse = await axios.get(`https://api.bybit.com/v5/market/orderbook`, {
+        params: {
+          category: 'linear',
+          symbol: `${symbol}USDT`,
+          limit: 1
+        },
+        timeout: 3000 // Timeout de 3 segundos
+      });
+      
+      let bidPrice = '0.00';
+      let askPrice = '0.00';
+      
+      if (orderbookResponse.data?.result?.b?.[0]?.[0]) {
+        bidPrice = parseFloat(orderbookResponse.data.result.b[0][0]).toFixed(2);
+      }
+      
+      if (orderbookResponse.data?.result?.a?.[0]?.[0]) {
+        askPrice = parseFloat(orderbookResponse.data.result.a[0][0]).toFixed(2);
+      }
+      
+      return { bidPrice, askPrice };
+    } catch (error) {
+      this.logger.warn(`Error fetching orderbook for ${symbol}USDT: ${error.message}`);
+      // Devolver valores por defecto
+      return { bidPrice: '0.00', askPrice: '0.00' };
+    }
   }
 }
