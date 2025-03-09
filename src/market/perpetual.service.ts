@@ -266,6 +266,22 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
     try {
       this.logger.log('Fetching initial perpetual market data...');
       
+      // Verificar conectividad a la API primero
+      try {
+        // Hacer una solicitud de prueba para verificar si la API está accesible
+        await axios.get('https://api.bybit.com/v5/market/tickers', {
+          params: { category: 'linear', symbol: 'BTCUSDT' },
+          timeout: 5000
+        });
+      } catch (error) {
+        // Si hay un error 403, es probable que todas las solicitudes fallen
+        if (error.response && error.response.status === 403) {
+          this.logger.error(`API access forbidden (403). Posible IP restriction or rate limiting. Will rely on WebSocket data.`);
+          // No intentar más solicitudes HTTP si hay un error 403
+          return;
+        }
+      }
+      
       // Contador de símbolos con datos válidos
       let validDataCount = 0;
       
@@ -276,7 +292,10 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
           await this.fetchSymbolData(symbol);
           validDataCount++;
         } catch (error) {
-          this.logger.error(`Error processing ${symbol}USDT: ${error.message}`);
+          // Solo registrar el error una vez por símbolo, no por cada intento
+          if (!error.message.includes('after 3 attempts')) {
+            this.logger.error(`Error processing ${symbol}USDT: ${error.message}`);
+          }
         }
       }
       
@@ -284,7 +303,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
       
       // Si no se obtuvieron datos válidos para ningún símbolo, lanzar un error
       if (validDataCount === 0) {
-        throw new Error('No valid data obtained for any symbol');
+        this.logger.warn('No valid data obtained for any symbol. Will rely on WebSocket data.');
       }
     } catch (error) {
       this.logger.error(`Error fetching initial perpetual market data: ${error.message}`);
@@ -296,6 +315,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
     // Intentar hasta 3 veces si hay errores
     let attempts = 0;
     let success = false;
+    let lastError = null;
     
     while (attempts < 3 && !success) {
       try {
@@ -309,63 +329,74 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         });
         
         if (!tickerResponse.data?.result?.list?.[0]) {
-          this.logger.warn(`No ticker data found for ${symbol}USDT`);
           attempts++;
+          lastError = new Error(`No ticker data found for ${symbol}USDT`);
+          // Esperar antes de reintentar
+          if (attempts < 3) await new Promise(resolve => setTimeout(resolve, 1000));
           continue;
         }
         
         const ticker = tickerResponse.data.result.list[0];
         
         // Obtener datos de funding
-        const fundingResponse = await axios.get(`https://api.bybit.com/v5/market/funding/history`, {
-          params: {
-            category: 'linear',
-            symbol: `${symbol}USDT`,
-            limit: 1
-          },
-          timeout: 5000
-        });
+        let fundingRate = 0;
+        try {
+          const fundingResponse = await axios.get(`https://api.bybit.com/v5/market/funding/history`, {
+            params: {
+              category: 'linear',
+              symbol: `${symbol}USDT`,
+              limit: 1
+            },
+            timeout: 5000
+          });
+          
+          fundingRate = fundingResponse.data?.result?.list?.[0]?.fundingRate 
+            ? parseFloat(fundingResponse.data.result.list[0].fundingRate) * 100 
+            : 0;
+        } catch (fundingError) {
+          // Si falla la obtención de funding, continuar con el resto de datos
+          this.logger.warn(`Could not fetch funding data for ${symbol}USDT: ${fundingError.message}`);
+        }
         
         // Obtener datos del orderbook
-        const orderbookResponse = await axios.get(`https://api.bybit.com/v5/market/orderbook`, {
-          params: {
-            category: 'linear',
-            symbol: `${symbol}USDT`,
-            limit: 1
-          },
-          timeout: 5000
-        });
+        let bidPrice = '0.00';
+        let askPrice = '0.00';
+        try {
+          const orderbookResponse = await axios.get(`https://api.bybit.com/v5/market/orderbook`, {
+            params: {
+              category: 'linear',
+              symbol: `${symbol}USDT`,
+              limit: 1
+            },
+            timeout: 5000
+          });
+          
+          if (orderbookResponse.data?.result?.b?.[0]?.[0]) {
+            bidPrice = this.formatPrice(parseFloat(orderbookResponse.data.result.b[0][0]));
+          }
+          
+          if (orderbookResponse.data?.result?.a?.[0]?.[0]) {
+            askPrice = this.formatPrice(parseFloat(orderbookResponse.data.result.a[0][0]));
+          }
+        } catch (orderbookError) {
+          // Si falla la obtención del orderbook, usar precios aproximados
+          this.logger.warn(`Could not fetch orderbook for ${symbol}USDT: ${orderbookError.message}`);
+          const price = parseFloat(ticker.lastPrice);
+          bidPrice = this.formatPrice(price * 0.999);
+          askPrice = this.formatPrice(price * 1.001);
+        }
         
         // Formatear los datos
         const price = parseFloat(ticker.lastPrice);
         const changePercent = parseFloat(ticker.price24hPcnt) * 100;
-        const fundingRate = fundingResponse.data?.result?.list?.[0]?.fundingRate 
-          ? parseFloat(fundingResponse.data.result.list[0].fundingRate) * 100 
-          : 0;
         
         // Verificar que el precio sea válido
         if (isNaN(price) || price <= 0) {
-          this.logger.warn(`Invalid price for ${symbol}USDT: ${price}`);
           attempts++;
+          lastError = new Error(`Invalid price for ${symbol}USDT: ${price}`);
+          // Esperar antes de reintentar
+          if (attempts < 3) await new Promise(resolve => setTimeout(resolve, 1000));
           continue;
-        }
-        
-        // Obtener los mejores precios del orderbook
-        let bidPrice = '0.00';
-        let askPrice = '0.00';
-        
-        if (orderbookResponse.data?.result?.b?.[0]?.[0]) {
-          bidPrice = parseFloat(orderbookResponse.data.result.b[0][0]).toFixed(2);
-        }
-        
-        if (orderbookResponse.data?.result?.a?.[0]?.[0]) {
-          askPrice = parseFloat(orderbookResponse.data.result.a[0][0]).toFixed(2);
-        }
-        
-        // Si no se pudieron obtener los precios del orderbook, usar el precio actual como respaldo
-        if (bidPrice === '0.00' || askPrice === '0.00') {
-          bidPrice = (price * 0.999).toFixed(2); // 0.1% menos que el precio actual
-          askPrice = (price * 1.001).toFixed(2); // 0.1% más que el precio actual
         }
         
         // Actualizar el ticker
@@ -384,7 +415,6 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
           openInterest: ticker.openInterest ? `${parseFloat(ticker.openInterest).toFixed(2)} ${symbol}` : `0 ${symbol}`,
           fundingRate: `${fundingRate.toFixed(4)}%`,
           nextFundingTime: ticker.nextFundingTime || Date.now() + 8 * 60 * 60 * 1000,
-          fundingRateTimestamp: fundingResponse.data?.result?.list?.[0]?.timestamp,
           leverage: '10x',
           bidPrice,
           askPrice,
@@ -406,13 +436,24 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   async fetchPerpetualData(): Promise<void> {
-    // Si tenemos conexión WebSocket activa, no necesitamos hacer fetch
-    if (this.wsConnected) {
+    // Verificar si hay tickers con valores en 0
+    const hasZeroValues = Array.from(this.perpetualTickers.values()).some(ticker => 
+      ticker.price === '0.00' || ticker.price === '0'
+    );
+    
+    // Si tenemos conexión WebSocket activa y no hay valores en 0, no necesitamos hacer fetch
+    if (this.wsConnected && !hasZeroValues) {
       return;
     }
     
-    // Si no hay WebSocket, intentamos obtener datos mediante REST API
-    await this.fetchInitialData();
+    // Si no hay WebSocket o hay valores en 0, intentamos obtener datos mediante REST API
+    this.logger.warn('WebSocket not connected or zero values detected, fetching data via REST API...');
+    
+    try {
+      await this.fetchInitialData();
+    } catch (error) {
+      // No necesitamos registrar el error aquí ya que fetchInitialData ya lo hace
+    }
   }
 
   getPerpetualTickers(): PerpetualMarketTicker[] {
@@ -491,6 +532,22 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`Error fetching orderbook for ${symbol}USDT: ${error.message}`);
       // Devolver valores por defecto
       return { bidPrice: '0.00', askPrice: '0.00' };
+    }
+  }
+
+  private formatPrice(price: number): string {
+    if (isNaN(price) || price === 0) return '0.00';
+    
+    if (price < 0.0001) {
+      return price.toFixed(8);
+    } else if (price < 0.01) {
+      return price.toFixed(6);
+    } else if (price < 1) {
+      return price.toFixed(4);
+    } else if (price < 10) {
+      return price.toFixed(3);
+    } else {
+      return price.toFixed(2);
     }
   }
 }

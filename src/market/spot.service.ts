@@ -222,6 +222,22 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
     try {
       this.logger.log('Fetching initial spot market data...');
       
+      // Verificar conectividad a la API primero
+      try {
+        // Hacer una solicitud de prueba para verificar si la API está accesible
+        await axios.get('https://api.bybit.com/v5/market/tickers', {
+          params: { category: 'spot', symbol: 'BTCUSDT' },
+          timeout: 5000
+        });
+      } catch (error) {
+        // Si hay un error 403, es probable que todas las solicitudes fallen
+        if (error.response && error.response.status === 403) {
+          this.logger.error(`API access forbidden (403). Posible IP restriction or rate limiting. Will rely on WebSocket data.`);
+          // No intentar más solicitudes HTTP si hay un error 403
+          return;
+        }
+      }
+      
       // Contador de símbolos con datos válidos
       let validDataCount = 0;
       
@@ -231,6 +247,7 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
           // Intentar hasta 3 veces si hay errores
           let attempts = 0;
           let success = false;
+          let lastError = null;
           
           while (attempts < 3 && !success) {
             try {
@@ -279,22 +296,31 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
                   validDataCount++;
                   success = true;
                 } else {
-                  this.logger.warn(`Invalid price for ${symbol}USDT: ${price}`);
+                  lastError = new Error(`Invalid price for ${symbol}USDT: ${price}`);
                   attempts++;
+                  // Esperar antes de reintentar
+                  if (attempts < 3) await new Promise(resolve => setTimeout(resolve, 1000));
                 }
               } else {
-                this.logger.warn(`No ticker data found for ${symbol}USDT`);
+                lastError = new Error(`No ticker data found for ${symbol}USDT`);
                 attempts++;
+                // Esperar antes de reintentar
+                if (attempts < 3) await new Promise(resolve => setTimeout(resolve, 1000));
               }
             } catch (error) {
-              this.logger.error(`Error fetching data for ${symbol}USDT (attempt ${attempts + 1}): ${error.message}`);
+              lastError = error;
               attempts++;
+              // Solo registrar el primer intento fallido para reducir logs
+              if (attempts === 1) {
+                this.logger.error(`Error fetching data for ${symbol}USDT (attempt ${attempts}): ${error.message}`);
+              }
               // Esperar un poco antes de reintentar
               await new Promise(resolve => setTimeout(resolve, 1000));
             }
           }
           
           if (!success) {
+            // Solo registrar una vez el fallo después de todos los intentos
             this.logger.error(`Failed to fetch data for ${symbol}USDT after ${attempts} attempts`);
           }
         } catch (error) {
@@ -306,11 +332,10 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
       
       // Si no se obtuvieron datos válidos para ningún símbolo, lanzar un error
       if (validDataCount === 0) {
-        throw new Error('No valid data obtained for any symbol');
+        this.logger.warn('No valid data obtained for any symbol. Will rely on WebSocket data.');
       }
     } catch (error) {
       this.logger.error(`Error fetching initial spot market data: ${error.message}`);
-      throw error; // Propagar el error para que se pueda manejar en el nivel superior
     }
   }
 
@@ -326,8 +351,14 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
     }
     
     // Si no hay WebSocket o hay valores en 0, intentamos obtener datos mediante REST API
-    this.logger.log('WebSocket not connected or zero values detected, fetching data via REST API...');
-    await this.fetchInitialData();
+    // Reducir el nivel de log a warn para no generar tantos logs
+    this.logger.warn('WebSocket not connected or zero values detected, fetching data via REST API...');
+    
+    try {
+      await this.fetchInitialData();
+    } catch (error) {
+      // No necesitamos registrar el error aquí ya que fetchInitialData ya lo hace
+    }
   }
 
   getSpotTickers(): SpotMarketTicker[] {
