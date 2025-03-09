@@ -153,6 +153,12 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   private formatPrice(price: number): string {
+    // Verificar si el precio es válido
+    if (isNaN(price) || price === undefined || price === null) {
+      this.logger.warn(`Invalid price value: ${price}`);
+      return '0.00';
+    }
+    
     // Para valores muy pequeños, usar más decimales
     if (price < 0.01) {
       return price.toFixed(6);
@@ -182,6 +188,7 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
       // Obtener datos de la API de Bybit para cada símbolo
       for (const symbol of this.symbols) {
         try {
+          this.logger.log(`Fetching data for ${symbol}USDT...`);
           const tickerResponse = await axios.get(`https://api.bybit.com/v5/market/tickers`, {
             params: {
               category: 'spot',
@@ -189,12 +196,20 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
             }
           });
           
+          // Log de la respuesta completa para depuración
+          this.logger.log(`Raw response for ${symbol}USDT: ${JSON.stringify(tickerResponse.data)}`);
+          
           if (tickerResponse.data?.result?.list?.[0]) {
             const ticker = tickerResponse.data.result.list[0];
+            
+            // Log de los datos del ticker para depuración
+            this.logger.log(`Ticker data for ${symbol}USDT: ${JSON.stringify(ticker)}`);
             
             // Formatear los datos
             const price = parseFloat(ticker.lastPrice);
             const changePercent = parseFloat(ticker.price24hPcnt) * 100;
+            
+            this.logger.log(`Formatted price for ${symbol}USDT: ${price}, formatted with formatPrice: ${this.formatPrice(price)}`);
             
             // Actualizar el ticker
             this.spotTickers.set(symbol, {
