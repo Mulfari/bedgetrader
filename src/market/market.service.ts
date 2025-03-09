@@ -128,25 +128,17 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   private subscribeToTickers(ws: WebSocket, type: 'spot' | 'perpetual') {
-    const pairs = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT'];
+    const symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'LINK', 'AVAX', 'MATIC', 'UNI', 'LTC', 'SHIB', 'ATOM', 'BNB'];
     const subscribeMessage = {
       op: 'subscribe',
-      args: type === 'spot' 
-        ? pairs.flatMap(pair => [`tickers.${pair}`, `bookticker.${pair}`])
-        : pairs.flatMap(pair => [
-            `tickers.${pair}`,
-            `kline.1.${pair}`,
-            `liquidation.${pair}`
-          ])
+      args: symbols.map(symbol => `tickers.${symbol}USDT`)
     };
-    this.logger.debug(`Subscribing to ${type} topics:`, subscribeMessage);
     ws.send(JSON.stringify(subscribeMessage));
   }
 
   private handleWebSocketMessage(message: MarketWebSocketMessage, type: 'spot' | 'perpetual') {
     try {
       if (!message.topic) return;
-      this.logger.debug(`Received ${type} message:`, message);
 
       const [msgType, symbol] = message.topic.split('.');
       if (!symbol) return;
@@ -183,7 +175,6 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       }
 
       this.marketData.set(marketKey, updatedData);
-      this.logger.debug(`Updated ${type} market data for ${marketKey}:`, updatedData);
     } catch (error) {
       this.logger.error(`Error processing ${type} WebSocket message:`, error);
     }

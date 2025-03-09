@@ -51,10 +51,7 @@ export class SpotMarketController {
       if (ticker) {
         // Verificar si el ticker tiene valores en 0
         if (ticker.price === '0.00' || ticker.price === '0') {
-          this.logger.warn(`Ticker ${symbol} has zero value`);
-          
-          // Intentar obtener datos nuevamente
-          this.logger.warn('Trying to fetch data again...');
+          this.logger.warn(`Ticker ${symbol} has zero value, trying to fetch data again...`);
           await this.spotMarketService.fetchInitialData();
           return this.spotMarketService.getSpotTicker(symbol);
         }

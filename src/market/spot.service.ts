@@ -190,7 +190,7 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
   private formatPrice(price: number): string {
     // Verificar si el precio es válido
     if (isNaN(price) || price === undefined || price === null) {
-      this.logger.warn(`Invalid price value: ${price}`);
+      // Eliminar log de advertencia para valores inválidos
       return '0.00';
     }
     
@@ -362,6 +362,7 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
       
       return { bidPrice, askPrice };
     } catch (error) {
+      // Solo registrar errores de orderbook como advertencia, no como error
       this.logger.warn(`Error fetching orderbook for ${symbol}USDT: ${error.message}`);
       // Devolver valores por defecto
       return { bidPrice: '0.00', askPrice: '0.00' };
@@ -391,7 +392,8 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
               }
             }
           } catch (error) {
-            this.logger.error(`Error updating orderbook prices for ${symbol}: ${error.message}`);
+            // Reducir nivel de log para errores individuales de actualización
+            this.logger.warn(`Error updating orderbook prices for ${symbol}: ${error.message}`);
           }
         }
       } catch (error) {
