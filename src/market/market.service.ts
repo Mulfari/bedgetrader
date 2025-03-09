@@ -67,46 +67,66 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   private cleanupWebSockets() {
-    if (this.wsSpot) {
+    if (this.wsSpot && this.wsSpot.readyState !== WebSocket.CLOSED && this.wsSpot.readyState !== WebSocket.CLOSING) {
       try {
         this.wsSpot.close();
       } catch (error) {
         this.logger.error('Error closing Spot WebSocket:', error);
       }
     }
-    if (this.wsPerpetual) {
+    if (this.wsPerpetual && this.wsPerpetual.readyState !== WebSocket.CLOSED && this.wsPerpetual.readyState !== WebSocket.CLOSING) {
       try {
         this.wsPerpetual.close();
       } catch (error) {
         this.logger.error('Error closing Perpetual WebSocket:', error);
       }
     }
+    
+    // Asegurarse de que las referencias a los WebSockets se limpien
+    this.wsSpot = null;
+    this.wsPerpetual = null;
   }
 
   private connectWebSockets() {
     try {
+      // Limpiar conexiones existentes antes de crear nuevas
       this.cleanupWebSockets();
       
-      // Conectar WebSocket de Spot
-      this.wsSpot = new WebSocket(this.WS_URL_SPOT);
-      this.setupWebSocketHandlers(this.wsSpot, 'spot');
-
-      // Conectar WebSocket de Perpetual
-      this.wsPerpetual = new WebSocket(this.WS_URL_PERPETUAL);
-      this.setupWebSocketHandlers(this.wsPerpetual, 'perpetual');
+      // Esperar un breve momento para asegurar que las conexiones anteriores se hayan cerrado completamente
+      setTimeout(() => {
+        try {
+          // Conectar WebSocket de Spot
+          this.wsSpot = new WebSocket(this.WS_URL_SPOT);
+          this.setupWebSocketHandlers(this.wsSpot, 'spot');
+  
+          // Conectar WebSocket de Perpetual
+          this.wsPerpetual = new WebSocket(this.WS_URL_PERPETUAL);
+          this.setupWebSocketHandlers(this.wsPerpetual, 'perpetual');
+        } catch (error) {
+          this.logger.error('Error creating WebSocket connections:', error);
+          this.handleReconnect();
+        }
+      }, 100); // Esperar 100ms
     } catch (error) {
-      this.logger.error('Error creating WebSocket connections:', error);
+      this.logger.error('Error in connectWebSockets:', error);
       this.handleReconnect();
     }
   }
 
   private setupWebSocketHandlers(ws: WebSocket, type: 'spot' | 'perpetual') {
+    // Manejar el evento de apertura de conexión
     ws.on('open', () => {
       this.logger.log(`${type} WebSocket connected to Bybit`);
       this.reconnectAttempts = 0;
-      this.subscribeToTickers(ws, type);
+      
+      try {
+        this.subscribeToTickers(ws, type);
+      } catch (error) {
+        this.logger.error(`Error subscribing to ${type} tickers:`, error);
+      }
     });
 
+    // Manejar mensajes recibidos
     ws.on('message', (data: string) => {
       try {
         const message: MarketWebSocketMessage = JSON.parse(data.toString());
@@ -116,24 +136,50 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       }
     });
 
-    ws.on('close', () => {
-      this.logger.warn(`${type} WebSocket disconnected`);
-      this.handleReconnect();
+    // Manejar cierre de conexión
+    ws.on('close', (code: number, reason: string) => {
+      this.logger.warn(`${type} WebSocket disconnected with code ${code}${reason ? ': ' + reason : ''}`);
+      
+      // Solo intentar reconectar si no fue un cierre intencional
+      if (code !== 1000) {
+        this.handleReconnect();
+      }
     });
 
+    // Manejar errores
     ws.on('error', (error) => {
-      this.logger.error(`${type} WebSocket error:`, error);
-      this.handleReconnect();
+      // Evitar registrar errores de ECONNRESET que son comunes durante el cierre
+      if (error.message && !error.message.includes('ECONNRESET')) {
+        this.logger.error(`${type} WebSocket error:`, error);
+      }
+      
+      // No llamar a handleReconnect aquí, ya que el evento 'close' se disparará después
+      // y manejará la reconexión si es necesario
     });
   }
 
   private subscribeToTickers(ws: WebSocket, type: 'spot' | 'perpetual') {
-    const symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'LINK', 'AVAX', 'MATIC', 'UNI', 'LTC', 'SHIB', 'ATOM', 'BNB'];
-    const subscribeMessage = {
-      op: 'subscribe',
-      args: symbols.map(symbol => `tickers.${symbol}USDT`)
-    };
-    ws.send(JSON.stringify(subscribeMessage));
+    // Verificar que el WebSocket esté abierto antes de enviar mensajes
+    if (ws.readyState !== WebSocket.OPEN) {
+      this.logger.warn(`Cannot subscribe to ${type} tickers: WebSocket is not open`);
+      return;
+    }
+    
+    try {
+      const symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'LINK', 'AVAX', 'MATIC', 'UNI', 'LTC', 'SHIB', 'ATOM', 'BNB'];
+      const subscribeMessage = {
+        op: 'subscribe',
+        args: symbols.map(symbol => `tickers.${symbol}USDT`)
+      };
+      
+      // Enviar mensaje de suscripción
+      ws.send(JSON.stringify(subscribeMessage));
+      
+      // Registrar suscripción exitosa
+      this.logger.log(`Subscribed to ${type} tickers for ${symbols.length} symbols`);
+    } catch (error) {
+      this.logger.error(`Error subscribing to ${type} tickers:`, error);
+    }
   }
 
   private handleWebSocketMessage(message: MarketWebSocketMessage, type: 'spot' | 'perpetual') {
@@ -261,9 +307,26 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     if (this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
       this.reconnectAttempts++;
       this.logger.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS})...`);
-      setTimeout(() => this.connectWebSockets(), this.RECONNECT_INTERVAL);
+      
+      // Usar un tiempo de espera exponencial para los reintentos
+      const delay = Math.min(this.RECONNECT_INTERVAL * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
+      
+      setTimeout(() => {
+        // Asegurarse de que las conexiones anteriores estén cerradas
+        this.cleanupWebSockets();
+        
+        // Esperar un momento antes de intentar reconectar
+        setTimeout(() => this.connectWebSockets(), 100);
+      }, delay);
     } else {
       this.logger.error('Max reconnection attempts reached');
+      
+      // Reiniciar el contador de intentos después de un tiempo más largo
+      setTimeout(() => {
+        this.logger.log('Resetting reconnection attempts counter and trying again...');
+        this.reconnectAttempts = 0;
+        this.connectWebSockets();
+      }, 60000); // Esperar 1 minuto antes de reiniciar
     }
   }
 } 
