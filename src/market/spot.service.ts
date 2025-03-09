@@ -88,15 +88,15 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
                 
                 this.spotTickers.set(symbol, {
                   ...existingTicker,
-                  price: price.toFixed(2),
-                  indexPrice: price.toFixed(2),
+                  price: this.formatPrice(price),
+                  indexPrice: this.formatPrice(price),
                   change: `${changePercent.toFixed(2)}%`,
-                  volume: parseFloat(ticker.volume24h).toFixed(2),
-                  high24h: parseFloat(ticker.highPrice24h).toFixed(2),
-                  low24h: parseFloat(ticker.lowPrice24h).toFixed(2),
+                  volume: this.formatVolume(parseFloat(ticker.volume24h)),
+                  high24h: this.formatPrice(parseFloat(ticker.highPrice24h)),
+                  low24h: this.formatPrice(parseFloat(ticker.lowPrice24h)),
                   volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h)),
-                  bidPrice: parseFloat(ticker.bid1Price).toFixed(2),
-                  askPrice: parseFloat(ticker.ask1Price).toFixed(2)
+                  bidPrice: this.formatPrice(parseFloat(ticker.bid1Price)),
+                  askPrice: this.formatPrice(parseFloat(ticker.ask1Price))
                 });
               }
             }
@@ -152,6 +152,19 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private formatPrice(price: number): string {
+    // Para valores muy pequeños, usar más decimales
+    if (price < 0.01) {
+      return price.toFixed(6);
+    } else if (price < 1) {
+      return price.toFixed(4);
+    } else if (price < 10) {
+      return price.toFixed(3);
+    } else {
+      return price.toFixed(2);
+    }
+  }
+
   private formatVolume(volume: number): string {
     if (volume >= 1000000) {
       return `${(volume / 1000000).toFixed(2)}M`;
@@ -186,16 +199,16 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
             // Actualizar el ticker
             this.spotTickers.set(symbol, {
               symbol,
-              price: price.toFixed(2),
-              indexPrice: price.toFixed(2),
+              price: this.formatPrice(price),
+              indexPrice: this.formatPrice(price),
               change: `${changePercent.toFixed(2)}%`,
-              volume: parseFloat(ticker.volume24h).toFixed(2),
-              high24h: parseFloat(ticker.highPrice24h).toFixed(2),
-              low24h: parseFloat(ticker.lowPrice24h).toFixed(2),
+              volume: this.formatVolume(parseFloat(ticker.volume24h)),
+              high24h: this.formatPrice(parseFloat(ticker.highPrice24h)),
+              low24h: this.formatPrice(parseFloat(ticker.lowPrice24h)),
               volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h)),
               marketType: 'spot',
-              bidPrice: parseFloat(ticker.bid1Price).toFixed(2),
-              askPrice: parseFloat(ticker.ask1Price).toFixed(2),
+              bidPrice: this.formatPrice(parseFloat(ticker.bid1Price)),
+              askPrice: this.formatPrice(parseFloat(ticker.ask1Price)),
               favorite: false
             });
             
