@@ -35,11 +35,27 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit() {
-    // Obtener datos iniciales mediante REST API
-    await this.fetchInitialData();
-    
-    // Iniciar conexión WebSocket
-    this.connectWebSocket();
+    try {
+      // Obtener datos iniciales mediante REST API
+      this.logger.log('Initializing SpotMarketService...');
+      await this.fetchInitialData();
+      
+      // Verificar si hay tickers con valores en 0 después de la carga inicial
+      const hasZeroValues = Array.from(this.spotTickers.values()).some(ticker => 
+        ticker.price === '0.00' || ticker.price === '0'
+      );
+      
+      if (hasZeroValues) {
+        this.logger.warn('Some tickers have zero values after initial data fetch');
+        // Intentar obtener datos nuevamente
+        await this.fetchInitialData();
+      }
+      
+      // Iniciar conexión WebSocket
+      this.connectWebSocket();
+    } catch (error) {
+      this.logger.error(`Error initializing SpotMarketService: ${error.message}`);
+    }
   }
 
   onModuleDestroy() {
@@ -187,70 +203,106 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
     try {
       this.logger.log('Fetching initial spot market data from Bybit API...');
       
+      // Contador de símbolos con datos válidos
+      let validDataCount = 0;
+      
       // Obtener datos de la API de Bybit para cada símbolo
       for (const symbol of this.symbols) {
         try {
           this.logger.log(`Fetching data for ${symbol}USDT...`);
-          const tickerResponse = await axios.get(`https://api.bybit.com/v5/market/tickers`, {
-            params: {
-              category: 'spot',
-              symbol: `${symbol}USDT`
+          
+          // Intentar hasta 3 veces si hay errores
+          let attempts = 0;
+          let success = false;
+          
+          while (attempts < 3 && !success) {
+            try {
+              const tickerResponse = await axios.get(`https://api.bybit.com/v5/market/tickers`, {
+                params: {
+                  category: 'spot',
+                  symbol: `${symbol}USDT`
+                },
+                timeout: 5000 // Timeout de 5 segundos
+              });
+              
+              if (tickerResponse.data?.result?.list?.[0]) {
+                const ticker = tickerResponse.data.result.list[0];
+                
+                // Formatear los datos
+                const price = parseFloat(ticker.lastPrice);
+                const changePercent = parseFloat(ticker.price24hPcnt) * 100;
+                
+                // Verificar que el precio sea válido
+                if (!isNaN(price) && price > 0) {
+                  this.logger.log(`Valid price for ${symbol}USDT: ${price}`);
+                  
+                  // Actualizar el ticker
+                  this.spotTickers.set(symbol, {
+                    symbol,
+                    price: this.formatPrice(price),
+                    indexPrice: this.formatPrice(price),
+                    change: `${changePercent.toFixed(2)}%`,
+                    volume: this.formatVolume(parseFloat(ticker.volume24h)),
+                    high24h: this.formatPrice(parseFloat(ticker.highPrice24h)),
+                    low24h: this.formatPrice(parseFloat(ticker.lowPrice24h)),
+                    volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h)),
+                    marketType: 'spot',
+                    bidPrice: this.formatPrice(parseFloat(ticker.bid1Price)),
+                    askPrice: this.formatPrice(parseFloat(ticker.ask1Price)),
+                    favorite: false
+                  });
+                  
+                  validDataCount++;
+                  success = true;
+                } else {
+                  this.logger.warn(`Invalid price for ${symbol}USDT: ${price}`);
+                  attempts++;
+                }
+              } else {
+                this.logger.warn(`No ticker data found for ${symbol}USDT`);
+                attempts++;
+              }
+            } catch (error) {
+              this.logger.error(`Error fetching data for ${symbol}USDT (attempt ${attempts + 1}): ${error.message}`);
+              attempts++;
+              // Esperar un poco antes de reintentar
+              await new Promise(resolve => setTimeout(resolve, 1000));
             }
-          });
+          }
           
-          // Log de la respuesta completa para depuración
-          this.logger.log(`Raw response for ${symbol}USDT: ${JSON.stringify(tickerResponse.data)}`);
-          
-          if (tickerResponse.data?.result?.list?.[0]) {
-            const ticker = tickerResponse.data.result.list[0];
-            
-            // Log de los datos del ticker para depuración
-            this.logger.log(`Ticker data for ${symbol}USDT: ${JSON.stringify(ticker)}`);
-            
-            // Formatear los datos
-            const price = parseFloat(ticker.lastPrice);
-            const changePercent = parseFloat(ticker.price24hPcnt) * 100;
-            
-            this.logger.log(`Formatted price for ${symbol}USDT: ${price}, formatted with formatPrice: ${this.formatPrice(price)}`);
-            
-            // Actualizar el ticker
-            this.spotTickers.set(symbol, {
-              symbol,
-              price: this.formatPrice(price),
-              indexPrice: this.formatPrice(price),
-              change: `${changePercent.toFixed(2)}%`,
-              volume: this.formatVolume(parseFloat(ticker.volume24h)),
-              high24h: this.formatPrice(parseFloat(ticker.highPrice24h)),
-              low24h: this.formatPrice(parseFloat(ticker.lowPrice24h)),
-              volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h)),
-              marketType: 'spot',
-              bidPrice: this.formatPrice(parseFloat(ticker.bid1Price)),
-              askPrice: this.formatPrice(parseFloat(ticker.ask1Price)),
-              favorite: false
-            });
-            
-            this.logger.debug(`Initial data for ${symbol}: ${JSON.stringify(this.spotTickers.get(symbol))}`);
-          } else {
-            this.logger.warn(`No initial ticker data found for ${symbol}USDT`);
+          if (!success) {
+            this.logger.error(`Failed to fetch data for ${symbol}USDT after ${attempts} attempts`);
           }
         } catch (error) {
-          this.logger.error(`Error fetching initial data for ${symbol}: ${error.message}`);
+          this.logger.error(`Error processing ${symbol}USDT: ${error.message}`);
         }
       }
       
-      this.logger.log('Initial spot market data fetched successfully');
+      this.logger.log(`Initial spot market data fetched successfully for ${validDataCount}/${this.symbols.length} symbols`);
+      
+      // Si no se obtuvieron datos válidos para ningún símbolo, lanzar un error
+      if (validDataCount === 0) {
+        throw new Error('No valid data obtained for any symbol');
+      }
     } catch (error) {
       this.logger.error(`Error fetching initial spot market data: ${error.message}`);
+      throw error; // Propagar el error para que se pueda manejar en el nivel superior
     }
   }
 
   async fetchSpotData(): Promise<void> {
-    // Si tenemos conexión WebSocket activa, no necesitamos hacer fetch
-    if (this.wsConnected) {
+    // Verificar si hay tickers con valores en 0
+    const hasZeroValues = Array.from(this.spotTickers.values()).some(ticker => 
+      ticker.price === '0.00' || ticker.price === '0'
+    );
+    
+    // Si tenemos conexión WebSocket activa y no hay valores en 0, no necesitamos hacer fetch
+    if (this.wsConnected && !hasZeroValues) {
       return;
     }
     
-    // Si no hay WebSocket, intentamos obtener datos mediante REST API
+    // Si no hay WebSocket o hay valores en 0, intentamos obtener datos mediante REST API
+    this.logger.log('WebSocket not connected or zero values detected, fetching data via REST API...');
     await this.fetchInitialData();
   }
 
