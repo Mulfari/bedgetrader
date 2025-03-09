@@ -13,6 +13,7 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
   private reconnectAttempts = 0;
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
   private reconnectTimeout: NodeJS.Timeout | null = null;
+  private orderbookUpdateInterval: NodeJS.Timeout | null = null;
 
   constructor() {
     // Inicializar los tickers con valores por defecto
@@ -53,6 +54,9 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
       
       // Iniciar conexión WebSocket
       this.connectWebSocket();
+      
+      // Iniciar actualización periódica de los precios de compra/venta
+      this.startOrderbookUpdates();
     } catch (error) {
       this.logger.error(`Error initializing SpotMarketService: ${error.message}`);
     }
@@ -60,6 +64,12 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
 
   onModuleDestroy() {
     this.closeWebSocket();
+    
+    // Limpiar el intervalo de actualización de orderbook
+    if (this.orderbookUpdateInterval) {
+      clearInterval(this.orderbookUpdateInterval);
+      this.orderbookUpdateInterval = null;
+    }
   }
 
   private connectWebSocket() {
@@ -99,21 +109,36 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
               // Actualizar el ticker
               const existingTicker = this.spotTickers.get(symbol);
               if (existingTicker) {
-                const price = parseFloat(ticker.lastPrice);
-                const changePercent = parseFloat(ticker.price24hPcnt) * 100;
-                
-                this.spotTickers.set(symbol, {
-                  ...existingTicker,
-                  price: this.formatPrice(price),
-                  indexPrice: this.formatPrice(price),
-                  change: `${changePercent.toFixed(2)}%`,
-                  volume: this.formatVolume(parseFloat(ticker.volume24h)),
-                  high24h: this.formatPrice(parseFloat(ticker.highPrice24h)),
-                  low24h: this.formatPrice(parseFloat(ticker.lowPrice24h)),
-                  volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h)),
-                  bidPrice: this.formatPrice(parseFloat(ticker.bid1Price)),
-                  askPrice: this.formatPrice(parseFloat(ticker.ask1Price))
-                });
+                // Verificar que los campos necesarios existan y sean válidos
+                if (ticker.lastPrice && !isNaN(parseFloat(ticker.lastPrice))) {
+                  const price = parseFloat(ticker.lastPrice);
+                  const changePercent = ticker.price24hPcnt ? parseFloat(ticker.price24hPcnt) * 100 : 0;
+                  
+                  // Crear un nuevo objeto con los datos actualizados
+                  const updatedTicker: SpotMarketTicker = {
+                    ...existingTicker,
+                    price: this.formatPrice(price),
+                    indexPrice: ticker.usdIndexPrice ? this.formatPrice(parseFloat(ticker.usdIndexPrice)) : this.formatPrice(price),
+                    change: `${changePercent.toFixed(2)}%`,
+                    volume: ticker.volume24h ? this.formatVolume(parseFloat(ticker.volume24h)) : existingTicker.volume,
+                    high24h: ticker.highPrice24h ? this.formatPrice(parseFloat(ticker.highPrice24h)) : existingTicker.high24h,
+                    low24h: ticker.lowPrice24h ? this.formatPrice(parseFloat(ticker.lowPrice24h)) : existingTicker.low24h,
+                    volumeUSDT: ticker.turnover24h ? this.formatVolume(parseFloat(ticker.turnover24h)) : existingTicker.volumeUSDT,
+                    marketType: 'spot',
+                    // Mantener los valores existentes para bidPrice y askPrice si no están en el mensaje
+                    bidPrice: existingTicker.bidPrice,
+                    askPrice: existingTicker.askPrice,
+                    favorite: existingTicker.favorite
+                  };
+                  
+                  // Actualizar el ticker en el mapa
+                  this.spotTickers.set(symbol, updatedTicker);
+                  
+                  // Log para depuración
+                  this.logger.debug(`Updated ticker for ${symbol}: ${JSON.stringify(updatedTicker)}`);
+                } else {
+                  this.logger.warn(`Invalid lastPrice in ticker update for ${symbol}: ${ticker.lastPrice}`);
+                }
               }
             }
           }
@@ -236,19 +261,29 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
                 if (!isNaN(price) && price > 0) {
                   this.logger.log(`Valid price for ${symbol}USDT: ${price}`);
                   
+                  // Obtener los mejores precios de compra/venta (bid/ask)
+                  let { bidPrice, askPrice } = await this.fetchOrderbook(symbol);
+                  
+                  // Si no se pudieron obtener los precios del orderbook, usar el precio actual como respaldo
+                  if (bidPrice === '0.00' || askPrice === '0.00') {
+                    bidPrice = this.formatPrice(price * 0.999); // 0.1% menos que el precio actual
+                    askPrice = this.formatPrice(price * 1.001); // 0.1% más que el precio actual
+                    this.logger.log(`Using fallback prices for ${symbol}USDT: bid=${bidPrice}, ask=${askPrice}`);
+                  }
+                  
                   // Actualizar el ticker
                   this.spotTickers.set(symbol, {
                     symbol,
                     price: this.formatPrice(price),
-                    indexPrice: this.formatPrice(price),
+                    indexPrice: ticker.usdIndexPrice ? this.formatPrice(parseFloat(ticker.usdIndexPrice)) : this.formatPrice(price),
                     change: `${changePercent.toFixed(2)}%`,
                     volume: this.formatVolume(parseFloat(ticker.volume24h)),
                     high24h: this.formatPrice(parseFloat(ticker.highPrice24h)),
                     low24h: this.formatPrice(parseFloat(ticker.lowPrice24h)),
                     volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h)),
                     marketType: 'spot',
-                    bidPrice: this.formatPrice(parseFloat(ticker.bid1Price)),
-                    askPrice: this.formatPrice(parseFloat(ticker.ask1Price)),
+                    bidPrice: bidPrice,
+                    askPrice: askPrice,
                     favorite: false
                   });
                   
@@ -312,5 +347,71 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
 
   getSpotTicker(symbol: string): SpotMarketTicker | undefined {
     return this.spotTickers.get(symbol);
+  }
+
+  private async fetchOrderbook(symbol: string): Promise<{ bidPrice: string, askPrice: string }> {
+    try {
+      const orderbookResponse = await axios.get(`https://api.bybit.com/v5/market/orderbook`, {
+        params: {
+          category: 'spot',
+          symbol: `${symbol}USDT`,
+          limit: 1
+        },
+        timeout: 3000 // Timeout de 3 segundos
+      });
+      
+      let bidPrice = '0.00';
+      let askPrice = '0.00';
+      
+      if (orderbookResponse.data?.result?.b?.[0]?.[0]) {
+        bidPrice = this.formatPrice(parseFloat(orderbookResponse.data.result.b[0][0]));
+      }
+      
+      if (orderbookResponse.data?.result?.a?.[0]?.[0]) {
+        askPrice = this.formatPrice(parseFloat(orderbookResponse.data.result.a[0][0]));
+      }
+      
+      this.logger.debug(`Got orderbook data for ${symbol}USDT: bid=${bidPrice}, ask=${askPrice}`);
+      return { bidPrice, askPrice };
+    } catch (error) {
+      this.logger.warn(`Error fetching orderbook for ${symbol}USDT: ${error.message}`);
+      // Devolver valores por defecto
+      return { bidPrice: '0.00', askPrice: '0.00' };
+    }
+  }
+
+  private startOrderbookUpdates() {
+    // Actualizar los precios de compra/venta cada 30 segundos
+    this.orderbookUpdateInterval = setInterval(async () => {
+      try {
+        this.logger.log('Updating orderbook prices...');
+        
+        // Actualizar los precios de compra/venta para los símbolos más populares
+        const popularSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'];
+        
+        for (const symbol of popularSymbols) {
+          try {
+            const { bidPrice, askPrice } = await this.fetchOrderbook(symbol);
+            
+            // Actualizar el ticker si los precios son válidos
+            if (bidPrice !== '0.00' && askPrice !== '0.00') {
+              const existingTicker = this.spotTickers.get(symbol);
+              if (existingTicker) {
+                this.spotTickers.set(symbol, {
+                  ...existingTicker,
+                  bidPrice,
+                  askPrice
+                });
+                this.logger.debug(`Updated orderbook prices for ${symbol}: bid=${bidPrice}, ask=${askPrice}`);
+              }
+            }
+          } catch (error) {
+            this.logger.error(`Error updating orderbook prices for ${symbol}: ${error.message}`);
+          }
+        }
+      } catch (error) {
+        this.logger.error(`Error in orderbook update interval: ${error.message}`);
+      }
+    }, 30000); // 30 segundos
   }
 } 
