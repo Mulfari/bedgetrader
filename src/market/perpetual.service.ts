@@ -7,7 +7,7 @@ import WebSocket from 'ws';
 export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PerpetualMarketService.name);
   private perpetualTickers: Map<string, PerpetualMarketTicker> = new Map();
-  private readonly symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'LINK', 'AVAX', 'MATIC', 'UNI', 'LTC', 'SHIB', 'ATOM', 'BNB'];
+  private readonly symbols = ['BTC', 'ETH', 'SOL'];
   private ws: WebSocket | null = null;
   private wsConnected = false;
   private reconnectAttempts = 0;
@@ -522,7 +522,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
     // Si no hay conexión WebSocket, no intentar actualizar los precios
     if (!this.wsConnected) {
       // Actualizar los precios de compra/venta para los símbolos más populares
-      const popularSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'];
+      const popularSymbols = ['BTC', 'ETH', 'SOL'];
       
       for (const symbol of popularSymbols) {
         try {
