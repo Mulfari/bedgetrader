@@ -65,11 +65,30 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
         
         this.ws.send(JSON.stringify(subscribeMsg));
         this.logger.log(`Subscribed to tickers: ${symbols.join(', ')}`);
+        
+        // Verificar el estado de la conexión periódicamente
+        setInterval(() => {
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.logger.debug('WebSocket connection is still open');
+            
+            // Enviar un ping para mantener la conexión activa
+            this.ws.send(JSON.stringify({ op: 'ping' }));
+          } else {
+            this.logger.warn(`WebSocket connection is not open. Current state: ${this.ws ? this.ws.readyState : 'null'}`);
+            this.attemptReconnect();
+          }
+        }, 30000); // Verificar cada 30 segundos
       });
 
       this.ws.on('message', (data: WebSocket.Data) => {
         try {
           const message = JSON.parse(data.toString());
+          
+          // Respuesta a ping
+          if (message.op === 'pong') {
+            this.logger.debug('Received pong from server');
+            return;
+          }
           
           // Procesar datos de ticker
           if (message.topic && message.topic.startsWith('tickers.') && message.data) {
@@ -78,13 +97,16 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
             const symbol = symbolWithUsdt.replace('USDT', '');
             
             if (this.symbols.includes(symbol)) {
-              this.logger.debug(`Received ticker update for ${symbol}: ${JSON.stringify(ticker)}`);
-              
               // Actualizar el ticker
               const existingTicker = this.spotTickers.get(symbol);
               if (existingTicker) {
                 const price = parseFloat(ticker.lastPrice);
                 const changePercent = parseFloat(ticker.price24hPcnt) * 100;
+                
+                // Log para depuración
+                if (symbol === 'BTC') {
+                  this.logger.debug(`Updating BTC ticker: price=${price.toFixed(2)}, change=${changePercent.toFixed(2)}%`);
+                }
                 
                 this.spotTickers.set(symbol, {
                   ...existingTicker,
@@ -215,13 +237,59 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   async fetchSpotData(): Promise<void> {
-    // Si tenemos conexión WebSocket activa, no necesitamos hacer fetch
-    if (this.wsConnected) {
-      return;
+    try {
+      this.logger.log('Fetching latest spot market data...');
+      
+      // Obtener datos para todos los símbolos en paralelo
+      const fetchPromises = this.symbols.map(async (symbol) => {
+        try {
+          const response = await axios.get(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${symbol}USDT`);
+          
+          if (response.data && response.data.result && response.data.result.list && response.data.result.list.length > 0) {
+            const ticker = response.data.result.list[0];
+            
+            // Actualizar el ticker con los datos más recientes
+            const existingTicker = this.spotTickers.get(symbol) || {
+              symbol,
+              marketType: 'spot',
+              favorite: false
+            };
+            
+            const price = parseFloat(ticker.lastPrice);
+            const changePercent = parseFloat(ticker.price24hPcnt) * 100;
+            
+            this.spotTickers.set(symbol, {
+              ...existingTicker,
+              price: price.toFixed(2),
+              indexPrice: price.toFixed(2),
+              change: `${changePercent.toFixed(2)}%`,
+              volume: parseFloat(ticker.volume24h).toFixed(2),
+              high24h: parseFloat(ticker.highPrice24h).toFixed(2),
+              low24h: parseFloat(ticker.lowPrice24h).toFixed(2),
+              volumeUSDT: this.formatVolume(parseFloat(ticker.turnover24h)),
+              bidPrice: parseFloat(ticker.bid1Price).toFixed(2),
+              askPrice: parseFloat(ticker.ask1Price).toFixed(2)
+            });
+            
+            // Log para depuración
+            if (symbol === 'BTC') {
+              this.logger.debug(`Updated BTC ticker via REST API: price=${price.toFixed(2)}, change=${changePercent.toFixed(2)}%`);
+            }
+          } else {
+            this.logger.warn(`No ticker data found for ${symbol}USDT in REST API response`);
+          }
+        } catch (error) {
+          this.logger.error(`Error fetching data for ${symbol} via REST API: ${error.message}`);
+        }
+      });
+      
+      // Esperar a que todas las solicitudes se completen
+      await Promise.all(fetchPromises);
+      
+      this.logger.log('Spot market data updated successfully via REST API');
+    } catch (error) {
+      this.logger.error(`Error updating spot market data via REST API: ${error.message}`);
     }
-    
-    // Si no hay WebSocket, intentamos obtener datos mediante REST API
-    await this.fetchInitialData();
   }
 
   getSpotTickers(): SpotMarketTicker[] {
