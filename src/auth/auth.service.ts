@@ -26,7 +26,15 @@ export class AuthService {
   }
 
   async comparePasswords(password: string, hashedPassword: string): Promise<boolean> {
-    return bcrypt.compare(password, hashedPassword);
+    try {
+      console.log(`🔍 Comparando contraseñas...`);
+      const result = await bcrypt.compare(password, hashedPassword);
+      console.log(`✅ Resultado de comparación: ${result}`);
+      return result;
+    } catch (error) {
+      console.error(`❌ Error al comparar contraseñas: ${error.message}`);
+      return false;
+    }
   }
 
   // ✅ CORREGIDO: Ahora el token incluye `sub` y `email`
@@ -54,26 +62,53 @@ export class AuthService {
   }
 
   async validateUser(email: string, password: string) {
+    // Log detallado para depuración
+    console.log(`🔍 Intentando validar usuario con email: ${email}`);
+    
+    if (!email || !password) {
+      console.error('❌ Email o password no proporcionados');
+      return null;
+    }
+    
     try {
-      console.log("🔹 Validando usuario:", email);
+      // Buscar usuario por email
+      const user = await this.prisma.user.findUnique({ 
+        where: { email },
+        select: {
+          id: true,
+          email: true,
+          password: true,
+          name: true
+        }
+      });
       
-      const user = await this.prisma.user.findUnique({ where: { email } });
-
+      // Log para verificar si se encontró el usuario
       if (!user) {
-        console.error("❌ Usuario no encontrado:", email);
+        console.error(`❌ Usuario no encontrado con email: ${email}`);
         return null;
       }
-
+      
+      console.log(`✅ Usuario encontrado: ${user.id}`);
+      
+      // Verificar contraseña usando el método comparePasswords
       const isPasswordValid = await this.comparePasswords(password, user.password);
+      
       if (!isPasswordValid) {
-        console.error("❌ Contraseña incorrecta para el usuario:", email);
+        console.error(`❌ Contraseña incorrecta para usuario: ${email}`);
         return null;
       }
-
-      console.log("✅ Usuario autenticado:", { id: user.id, email: user.email });
-      return { id: user.id, email: user.email };
+      
+      console.log(`✅ Contraseña válida para usuario: ${email}`);
+      
+      // Retornar usuario sin la contraseña
+      return {
+        id: user.id,
+        email: user.email,
+        name: user.name
+      };
     } catch (error) {
-      console.error("❌ Error en la validación del usuario:", error);
+      console.error(`❌ Error al validar usuario: ${error.message}`);
+      console.error(error.stack);
       return null;
     }
   }

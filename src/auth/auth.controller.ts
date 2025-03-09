@@ -26,34 +26,63 @@ export class AuthController {
 
   @Post('login')
   async login(@Body() body: { email: string; password: string }) {
-    this.logger.log(`Intento de login para: ${body.email}`);
+    // Log detallado para depuración
+    this.logger.log(`📝 Recibida solicitud de login para: ${body.email}`);
+    
+    // Validar que se proporcionaron email y password
+    if (!body.email || !body.password) {
+      this.logger.error('❌ Email o password no proporcionados');
+      throw new HttpException('Email y password son requeridos', HttpStatus.BAD_REQUEST);
+    }
     
     try {
+      // Intentar validar el usuario
       const user = await this.authService.validateUser(body.email, body.password);
       
+      // Si no se pudo validar el usuario
       if (!user) {
-        this.logger.warn(`Login fallido para: ${body.email} - Credenciales inválidas`);
+        this.logger.warn(`❌ Validación fallida para: ${body.email}`);
         throw new HttpException('Credenciales inválidas', HttpStatus.UNAUTHORIZED);
       }
       
-      const payload = { email: user.email, sub: user.id };
+      this.logger.log(`✅ Usuario validado: ${user.id}`);
+      
+      // Generar token JWT
+      const payload = { 
+        sub: user.id,
+        email: user.email
+      };
+      
       const token = this.jwtService.sign(payload);
+      this.logger.log(`✅ Token generado para usuario: ${user.id}`);
       
-      this.logger.log(`Login exitoso para: ${body.email}`);
-      
+      // Devolver respuesta exitosa
       return {
+        success: true,
         message: 'Autenticación exitosa',
         access_token: token,
         user: {
           id: user.id,
-          email: user.email
+          email: user.email,
+          name: user.name || ''
         }
       };
     } catch (error) {
-      this.logger.error(`Error en login para ${body.email}: ${error.message}`);
+      // Log detallado del error
+      this.logger.error(`❌ Error en login: ${error.message}`);
+      if (error.stack) {
+        this.logger.error(error.stack);
+      }
+      
+      // Si es un HttpException, mantener el status code
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      
+      // Para otros errores, devolver 500
       throw new HttpException(
-        error.message || 'Credenciales inválidas',
-        error.status || HttpStatus.UNAUTHORIZED
+        'Error interno del servidor',
+        HttpStatus.INTERNAL_SERVER_ERROR
       );
     }
   }
