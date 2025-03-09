@@ -14,9 +14,6 @@ model User {
   name        String?
   createdAt   DateTime     @default(now())
   subAccounts SubAccount[]
-  orders      Order[]      // Relación con las órdenes
-  bybitApiKey    String?   // Clave API de Bybit
-  bybitApiSecret String?   // Secreto API de Bybit
 }
 
 model SubAccount {
@@ -32,26 +29,4 @@ model SubAccount {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-}
-
-model Order {
-  id           String   @id @default(uuid())
-  userId       String
-  orderId      String   // ID de orden de Bybit
-  orderLinkId  String?  // ID de enlace de orden personalizado
-  symbol       String   // Símbolo del par de trading
-  side         String   // Buy o Sell
-  orderType    String   // Market o Limit
-  price        String?  // Precio de la orden
-  qty          String   // Cantidad de la orden
-  timeInForce  String   // GTC, IOC, FOK, etc.
-  category     String   // linear, inverse, spot, option
-  status       String   // Estado de la orden
-  rawData      String   // Datos completos de la respuesta de Bybit
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([orderId])
 }
