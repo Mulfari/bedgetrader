@@ -160,7 +160,9 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
     }
     
     // Para valores muy pequeños, usar más decimales
-    if (price < 0.01) {
+    if (price < 0.0001) {
+      return price.toFixed(8); // Usar 8 decimales para valores extremadamente pequeños (como SHIB)
+    } else if (price < 0.01) {
       return price.toFixed(6);
     } else if (price < 1) {
       return price.toFixed(4);
