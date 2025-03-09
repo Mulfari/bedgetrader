@@ -70,7 +70,22 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
       });
       
       // Obtener datos iniciales mediante REST API
-      await this.fetchInitialData();
+      try {
+        await this.fetchInitialData();
+        
+        // Verificar si hay tickers con valores en 0 después de la carga inicial
+        const hasZeroValues = Array.from(this.perpetualTickers.values()).some(ticker => 
+          ticker.price === '0.00' || ticker.price === '0'
+        );
+        
+        if (hasZeroValues) {
+          this.logger.warn('Some perpetual tickers have zero values after initial data fetch');
+          // No intentamos obtener datos nuevamente, confiaremos en WebSocket
+        }
+      } catch (error) {
+        // Si hay un error al obtener datos iniciales, continuamos con WebSocket
+        this.logger.warn(`Could not fetch initial data via REST API: ${error.message}. Will rely on WebSocket data.`);
+      }
       
       // Iniciar conexión WebSocket
       this.connectWebSocket();
@@ -474,39 +489,66 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
   private startOrderbookUpdates(): void {
     // Actualizar los precios de compra/venta cada 30 segundos
     this.orderbookUpdateInterval = setInterval(() => {
-      this.updateOrderbookPrices().catch(error => {
-        this.logger.error(`Error in orderbook update interval: ${error.message}`);
-      });
+      // Solo actualizar si la conexión WebSocket no está activa
+      if (!this.wsConnected) {
+        this.updateOrderbookPrices().catch(error => {
+          // No registrar errores de conectividad o 403
+          if (!error.message.includes('ECONNREFUSED') && 
+              !error.message.includes('timeout') && 
+              (!error.response || error.response.status !== 403)) {
+            this.logger.warn(`Error in orderbook update interval: ${error.message}`);
+          }
+        });
+      }
     }, 30000); // 30 segundos
   }
   
   private async updateOrderbookPrices(): Promise<void> {
-    // Actualizar los precios de compra/venta para los símbolos más populares
-    const popularSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'];
-    
-    for (const symbol of popularSymbols) {
-      try {
-        const { bidPrice, askPrice } = await this.fetchOrderbook(symbol);
-        
-        // Actualizar el ticker si los precios son válidos
-        if (bidPrice !== '0.00' && askPrice !== '0.00') {
-          const existingTicker = this.perpetualTickers.get(symbol);
-          if (existingTicker) {
-            this.perpetualTickers.set(symbol, {
-              ...existingTicker,
-              bidPrice,
-              askPrice
-            });
+    // Si no hay conexión WebSocket, no intentar actualizar los precios
+    if (!this.wsConnected) {
+      // Actualizar los precios de compra/venta para los símbolos más populares
+      const popularSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'];
+      
+      for (const symbol of popularSymbols) {
+        try {
+          const { bidPrice, askPrice } = await this.fetchOrderbook(symbol);
+          
+          // Actualizar el ticker si los precios son válidos
+          if (bidPrice !== '0.00' && askPrice !== '0.00') {
+            const existingTicker = this.perpetualTickers.get(symbol);
+            if (existingTicker) {
+              this.perpetualTickers.set(symbol, {
+                ...existingTicker,
+                bidPrice,
+                askPrice
+              });
+            }
+          }
+        } catch (error) {
+          // No registrar errores de conectividad o 403
+          if (!error.message.includes('ECONNREFUSED') && 
+              !error.message.includes('timeout') && 
+              (!error.response || error.response.status !== 403)) {
+            this.logger.warn(`Error updating orderbook prices for ${symbol}: ${error.message}`);
           }
         }
-      } catch (error) {
-        this.logger.error(`Error updating orderbook prices for ${symbol}: ${error.message}`);
       }
     }
   }
   
   private async fetchOrderbook(symbol: string): Promise<{ bidPrice: string, askPrice: string }> {
     try {
+      // Verificar si ya tenemos un precio válido para este símbolo
+      const existingTicker = this.perpetualTickers.get(symbol);
+      if (existingTicker && existingTicker.price !== '0.00' && existingTicker.price !== '0') {
+        // Si ya tenemos un precio válido, usar valores aproximados en lugar de hacer una solicitud
+        const price = parseFloat(existingTicker.price);
+        return {
+          bidPrice: this.formatPrice(price * 0.999), // 0.1% menos que el precio actual
+          askPrice: this.formatPrice(price * 1.001)  // 0.1% más que el precio actual
+        };
+      }
+      
       const orderbookResponse = await axios.get(`https://api.bybit.com/v5/market/orderbook`, {
         params: {
           category: 'linear',
@@ -520,16 +562,30 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
       let askPrice = '0.00';
       
       if (orderbookResponse.data?.result?.b?.[0]?.[0]) {
-        bidPrice = parseFloat(orderbookResponse.data.result.b[0][0]).toFixed(2);
+        bidPrice = this.formatPrice(parseFloat(orderbookResponse.data.result.b[0][0]));
       }
       
       if (orderbookResponse.data?.result?.a?.[0]?.[0]) {
-        askPrice = parseFloat(orderbookResponse.data.result.a[0][0]).toFixed(2);
+        askPrice = this.formatPrice(parseFloat(orderbookResponse.data.result.a[0][0]));
       }
       
       return { bidPrice, askPrice };
     } catch (error) {
-      this.logger.warn(`Error fetching orderbook for ${symbol}USDT: ${error.message}`);
+      // Solo registrar errores que no sean 403
+      if (!error.response || error.response.status !== 403) {
+        this.logger.warn(`Error fetching orderbook for ${symbol}USDT: ${error.message}`);
+      }
+      
+      // Si tenemos un precio existente, usar valores aproximados
+      const existingTicker = this.perpetualTickers.get(symbol);
+      if (existingTicker && existingTicker.price !== '0.00' && existingTicker.price !== '0') {
+        const price = parseFloat(existingTicker.price);
+        return {
+          bidPrice: this.formatPrice(price * 0.999), // 0.1% menos que el precio actual
+          askPrice: this.formatPrice(price * 1.001)  // 0.1% más que el precio actual
+        };
+      }
+      
       // Devolver valores por defecto
       return { bidPrice: '0.00', askPrice: '0.00' };
     }

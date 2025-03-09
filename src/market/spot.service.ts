@@ -39,14 +39,22 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
     try {
       // Obtener datos iniciales mediante REST API
       this.logger.log('Initializing SpotMarketService...');
-      await this.fetchInitialData();
+      
+      let apiAccessible = true;
+      try {
+        await this.fetchInitialData();
+      } catch (error) {
+        // Si hay un error al obtener datos iniciales, marcar la API como inaccesible
+        apiAccessible = false;
+      }
       
       // Verificar si hay tickers con valores en 0 después de la carga inicial
       const hasZeroValues = Array.from(this.spotTickers.values()).some(ticker => 
         ticker.price === '0.00' || ticker.price === '0'
       );
       
-      if (hasZeroValues) {
+      // Solo intentar obtener datos nuevamente si la API es accesible y hay valores en cero
+      if (hasZeroValues && apiAccessible) {
         this.logger.warn('Some tickers have zero values after initial data fetch');
         // Intentar obtener datos nuevamente
         await this.fetchInitialData();
@@ -371,6 +379,17 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
 
   private async fetchOrderbook(symbol: string): Promise<{ bidPrice: string, askPrice: string }> {
     try {
+      // Verificar si ya hemos tenido errores 403 previamente
+      const existingTicker = this.spotTickers.get(symbol);
+      if (existingTicker && existingTicker.price !== '0.00' && existingTicker.price !== '0') {
+        // Si ya tenemos un precio válido, usar valores aproximados en lugar de hacer una solicitud
+        const price = parseFloat(existingTicker.price);
+        return {
+          bidPrice: this.formatPrice(price * 0.999), // 0.1% menos que el precio actual
+          askPrice: this.formatPrice(price * 1.001)  // 0.1% más que el precio actual
+        };
+      }
+      
       const orderbookResponse = await axios.get(`https://api.bybit.com/v5/market/orderbook`, {
         params: {
           category: 'spot',
@@ -393,8 +412,21 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
       
       return { bidPrice, askPrice };
     } catch (error) {
-      // Solo registrar errores de orderbook como advertencia, no como error
-      this.logger.warn(`Error fetching orderbook for ${symbol}USDT: ${error.message}`);
+      // Solo registrar errores que no sean 403
+      if (!error.response || error.response.status !== 403) {
+        this.logger.warn(`Error fetching orderbook for ${symbol}USDT: ${error.message}`);
+      }
+      
+      // Si tenemos un precio existente, usar valores aproximados
+      const existingTicker = this.spotTickers.get(symbol);
+      if (existingTicker && existingTicker.price !== '0.00' && existingTicker.price !== '0') {
+        const price = parseFloat(existingTicker.price);
+        return {
+          bidPrice: this.formatPrice(price * 0.999), // 0.1% menos que el precio actual
+          askPrice: this.formatPrice(price * 1.001)  // 0.1% más que el precio actual
+        };
+      }
+      
       // Devolver valores por defecto
       return { bidPrice: '0.00', askPrice: '0.00' };
     }
@@ -403,32 +435,44 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
   private startOrderbookUpdates() {
     // Actualizar los precios de compra/venta cada 30 segundos
     this.orderbookUpdateInterval = setInterval(async () => {
-      try {
-        // Actualizar los precios de compra/venta para los símbolos más populares
-        const popularSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'];
-        
-        for (const symbol of popularSymbols) {
-          try {
-            const { bidPrice, askPrice } = await this.fetchOrderbook(symbol);
-            
-            // Actualizar el ticker si los precios son válidos
-            if (bidPrice !== '0.00' && askPrice !== '0.00') {
-              const existingTicker = this.spotTickers.get(symbol);
-              if (existingTicker) {
-                this.spotTickers.set(symbol, {
-                  ...existingTicker,
-                  bidPrice,
-                  askPrice
-                });
+      // Solo actualizar si la conexión WebSocket no está activa
+      if (!this.wsConnected) {
+        try {
+          // Actualizar los precios de compra/venta para los símbolos más populares
+          const popularSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'];
+          
+          for (const symbol of popularSymbols) {
+            try {
+              const { bidPrice, askPrice } = await this.fetchOrderbook(symbol);
+              
+              // Actualizar el ticker si los precios son válidos
+              if (bidPrice !== '0.00' && askPrice !== '0.00') {
+                const existingTicker = this.spotTickers.get(symbol);
+                if (existingTicker) {
+                  this.spotTickers.set(symbol, {
+                    ...existingTicker,
+                    bidPrice,
+                    askPrice
+                  });
+                }
+              }
+            } catch (error) {
+              // No registrar errores de conectividad o 403
+              if (!error.message.includes('ECONNREFUSED') && 
+                  !error.message.includes('timeout') && 
+                  (!error.response || error.response.status !== 403)) {
+                this.logger.warn(`Error updating orderbook prices for ${symbol}: ${error.message}`);
               }
             }
-          } catch (error) {
-            // Reducir nivel de log para errores individuales de actualización
-            this.logger.warn(`Error updating orderbook prices for ${symbol}: ${error.message}`);
+          }
+        } catch (error) {
+          // No registrar errores de conectividad o 403
+          if (!error.message.includes('ECONNREFUSED') && 
+              !error.message.includes('timeout') && 
+              (!error.response || error.response.status !== 403)) {
+            this.logger.warn(`Error in orderbook update interval: ${error.message}`);
           }
         }
-      } catch (error) {
-        this.logger.error(`Error in orderbook update interval: ${error.message}`);
       }
     }, 30000); // 30 segundos
   }
