@@ -67,94 +67,236 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   private cleanupWebSockets() {
-    if (this.wsSpot && this.wsSpot.readyState !== WebSocket.CLOSED && this.wsSpot.readyState !== WebSocket.CLOSING) {
+    // Limpiar WebSocket de Spot
+    if (this.wsSpot) {
       try {
-        this.wsSpot.close();
+        // Solo intentar cerrar si está abierto o conectando
+        if (this.wsSpot.readyState === WebSocket.OPEN || this.wsSpot.readyState === WebSocket.CONNECTING) {
+          // Eliminar todos los listeners para evitar eventos no deseados
+          this.wsSpot.removeAllListeners();
+          
+          // Agregar un único listener para el evento close
+          this.wsSpot.once('close', () => {
+            this.logger.log('Spot WebSocket closed cleanly');
+          });
+          
+          // Cerrar la conexión
+          this.wsSpot.close(1000, 'Closing connection intentionally');
+        }
       } catch (error) {
-        this.logger.error('Error closing Spot WebSocket:', error);
+        // Solo registrar errores reales, ignorar errores de cierre normal
+        if (error.message && !error.message.includes('WebSocket was closed')) {
+          this.logger.error('Error closing Spot WebSocket:', error);
+        }
       }
-    }
-    if (this.wsPerpetual && this.wsPerpetual.readyState !== WebSocket.CLOSED && this.wsPerpetual.readyState !== WebSocket.CLOSING) {
-      try {
-        this.wsPerpetual.close();
-      } catch (error) {
-        this.logger.error('Error closing Perpetual WebSocket:', error);
-      }
+      
+      // Limpiar la referencia
+      this.wsSpot = null;
     }
     
-    // Asegurarse de que las referencias a los WebSockets se limpien
-    this.wsSpot = null;
-    this.wsPerpetual = null;
+    // Limpiar WebSocket de Perpetual
+    if (this.wsPerpetual) {
+      try {
+        // Solo intentar cerrar si está abierto o conectando
+        if (this.wsPerpetual.readyState === WebSocket.OPEN || this.wsPerpetual.readyState === WebSocket.CONNECTING) {
+          // Eliminar todos los listeners para evitar eventos no deseados
+          this.wsPerpetual.removeAllListeners();
+          
+          // Agregar un único listener para el evento close
+          this.wsPerpetual.once('close', () => {
+            this.logger.log('Perpetual WebSocket closed cleanly');
+          });
+          
+          // Cerrar la conexión
+          this.wsPerpetual.close(1000, 'Closing connection intentionally');
+        }
+      } catch (error) {
+        // Solo registrar errores reales, ignorar errores de cierre normal
+        if (error.message && !error.message.includes('WebSocket was closed')) {
+          this.logger.error('Error closing Perpetual WebSocket:', error);
+        }
+      }
+      
+      // Limpiar la referencia
+      this.wsPerpetual = null;
+    }
   }
 
   private connectWebSockets() {
-    try {
-      // Limpiar conexiones existentes antes de crear nuevas
-      this.cleanupWebSockets();
-      
-      // Esperar un breve momento para asegurar que las conexiones anteriores se hayan cerrado completamente
-      setTimeout(() => {
-        try {
-          // Conectar WebSocket de Spot
-          this.wsSpot = new WebSocket(this.WS_URL_SPOT);
-          this.setupWebSocketHandlers(this.wsSpot, 'spot');
+    // Primero, asegurarse de que las conexiones anteriores estén completamente cerradas
+    this.cleanupWebSockets();
+    
+    // Esperar un momento antes de crear nuevas conexiones
+    setTimeout(() => {
+      this.connectSpotWebSocket();
+      this.connectPerpetualWebSocket();
+    }, 500);
+  }
   
-          // Conectar WebSocket de Perpetual
-          this.wsPerpetual = new WebSocket(this.WS_URL_PERPETUAL);
-          this.setupWebSocketHandlers(this.wsPerpetual, 'perpetual');
-        } catch (error) {
-          this.logger.error('Error creating WebSocket connections:', error);
+  private connectSpotWebSocket() {
+    try {
+      // Crear nueva conexión WebSocket para Spot
+      this.wsSpot = new WebSocket(this.WS_URL_SPOT);
+      
+      // Configurar manejadores de eventos
+      this.setupWebSocketHandlers(this.wsSpot, 'spot');
+      
+      // Agregar un timeout para detectar problemas de conexión
+      const connectionTimeout = setTimeout(() => {
+        if (this.wsSpot && this.wsSpot.readyState === WebSocket.CONNECTING) {
+          this.logger.warn('Spot WebSocket connection timeout');
+          
+          // Limpiar la conexión actual
+          if (this.wsSpot) {
+            this.wsSpot.removeAllListeners();
+            this.wsSpot.terminate();
+            this.wsSpot = null;
+          }
+          
+          // Intentar reconectar
           this.handleReconnect();
         }
-      }, 100); // Esperar 100ms
+      }, 10000); // 10 segundos de timeout
+      
+      // Limpiar el timeout cuando se establezca la conexión
+      this.wsSpot.once('open', () => {
+        clearTimeout(connectionTimeout);
+      });
     } catch (error) {
-      this.logger.error('Error in connectWebSockets:', error);
+      this.logger.error('Error creating Spot WebSocket connection:', error);
+      this.handleReconnect();
+    }
+  }
+  
+  private connectPerpetualWebSocket() {
+    try {
+      // Crear nueva conexión WebSocket para Perpetual
+      this.wsPerpetual = new WebSocket(this.WS_URL_PERPETUAL);
+      
+      // Configurar manejadores de eventos
+      this.setupWebSocketHandlers(this.wsPerpetual, 'perpetual');
+      
+      // Agregar un timeout para detectar problemas de conexión
+      const connectionTimeout = setTimeout(() => {
+        if (this.wsPerpetual && this.wsPerpetual.readyState === WebSocket.CONNECTING) {
+          this.logger.warn('Perpetual WebSocket connection timeout');
+          
+          // Limpiar la conexión actual
+          if (this.wsPerpetual) {
+            this.wsPerpetual.removeAllListeners();
+            this.wsPerpetual.terminate();
+            this.wsPerpetual = null;
+          }
+          
+          // Intentar reconectar
+          this.handleReconnect();
+        }
+      }, 10000); // 10 segundos de timeout
+      
+      // Limpiar el timeout cuando se establezca la conexión
+      this.wsPerpetual.once('open', () => {
+        clearTimeout(connectionTimeout);
+      });
+    } catch (error) {
+      this.logger.error('Error creating Perpetual WebSocket connection:', error);
       this.handleReconnect();
     }
   }
 
   private setupWebSocketHandlers(ws: WebSocket, type: 'spot' | 'perpetual') {
+    // Verificar que el WebSocket exista
+    if (!ws) {
+      this.logger.error(`Cannot setup handlers: ${type} WebSocket is null`);
+      return;
+    }
+    
     // Manejar el evento de apertura de conexión
     ws.on('open', () => {
       this.logger.log(`${type} WebSocket connected to Bybit`);
       this.reconnectAttempts = 0;
       
-      try {
-        this.subscribeToTickers(ws, type);
-      } catch (error) {
-        this.logger.error(`Error subscribing to ${type} tickers:`, error);
-      }
+      // Esperar un breve momento antes de suscribirse para asegurar que la conexión esté estable
+      setTimeout(() => {
+        try {
+          this.subscribeToTickers(ws, type);
+        } catch (error) {
+          this.logger.error(`Error subscribing to ${type} tickers:`, error);
+        }
+      }, 100);
     });
 
     // Manejar mensajes recibidos
     ws.on('message', (data: string) => {
       try {
         const message: MarketWebSocketMessage = JSON.parse(data.toString());
+        
+        // Verificar si es un mensaje de ping/pong o heartbeat
+        if (message.op === 'ping' || message.type === 'ping') {
+          // Responder con pong si es necesario
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ op: 'pong' }));
+          }
+          return;
+        }
+        
+        // Procesar el mensaje normal
         this.handleWebSocketMessage(message, type);
       } catch (error) {
-        this.logger.error(`Error processing ${type} WebSocket message:`, error);
+        // Solo registrar errores de procesamiento, no errores de conexión
+        if (!error.message || (!error.message.includes('ECONNRESET') && !error.message.includes('WebSocket is not open'))) {
+          this.logger.error(`Error processing ${type} WebSocket message:`, error);
+        }
       }
     });
 
     // Manejar cierre de conexión
     ws.on('close', (code: number, reason: string) => {
-      this.logger.warn(`${type} WebSocket disconnected with code ${code}${reason ? ': ' + reason : ''}`);
+      // Registrar información detallada sobre el cierre
+      const reasonStr = reason ? `: ${reason}` : '';
+      this.logger.warn(`${type} WebSocket disconnected with code ${code}${reasonStr}`);
       
-      // Solo intentar reconectar si no fue un cierre intencional
-      if (code !== 1000) {
-        this.handleReconnect();
+      // Códigos de cierre normales: 1000 (cierre normal), 1001 (going away)
+      const isNormalClosure = code === 1000 || code === 1001;
+      
+      // Solo intentar reconectar si no fue un cierre normal
+      if (!isNormalClosure) {
+        // Esperar un momento antes de intentar reconectar
+        setTimeout(() => this.handleReconnect(), 100);
       }
     });
 
     // Manejar errores
     ws.on('error', (error) => {
-      // Evitar registrar errores de ECONNRESET que son comunes durante el cierre
-      if (error.message && !error.message.includes('ECONNRESET')) {
+      // Filtrar errores comunes durante el cierre
+      const errorMsg = error.message || '';
+      const isCommonError = errorMsg.includes('ECONNRESET') || 
+                           errorMsg.includes('WebSocket was closed') ||
+                           errorMsg.includes('WebSocket is not open');
+      
+      if (!isCommonError) {
         this.logger.error(`${type} WebSocket error:`, error);
       }
       
       // No llamar a handleReconnect aquí, ya que el evento 'close' se disparará después
-      // y manejará la reconexión si es necesario
+    });
+    
+    // Configurar un ping periódico para mantener la conexión viva
+    const pingInterval = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ op: 'ping' }));
+        } catch (error) {
+          // Ignorar errores de ping, el evento de error los manejará
+        }
+      } else {
+        // Limpiar el intervalo si el WebSocket ya no está abierto
+        clearInterval(pingInterval);
+      }
+    }, 30000); // Enviar ping cada 30 segundos
+    
+    // Limpiar el intervalo cuando se cierre el WebSocket
+    ws.once('close', () => {
+      clearInterval(pingInterval);
     });
   }
 
@@ -306,17 +448,23 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private handleReconnect() {
     if (this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
       this.reconnectAttempts++;
-      this.logger.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS})...`);
       
-      // Usar un tiempo de espera exponencial para los reintentos
-      const delay = Math.min(this.RECONNECT_INTERVAL * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
+      // Calcular retraso exponencial con un componente aleatorio para evitar reconexiones simultáneas
+      const baseDelay = this.RECONNECT_INTERVAL * Math.pow(1.5, this.reconnectAttempts - 1);
+      const jitter = Math.random() * 1000; // Añadir hasta 1 segundo de jitter
+      const delay = Math.min(baseDelay + jitter, 30000);
+      
+      this.logger.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS}) in ${Math.round(delay)}ms...`);
       
       setTimeout(() => {
-        // Asegurarse de que las conexiones anteriores estén cerradas
-        this.cleanupWebSockets();
+        // Intentar conectar de nuevo
+        if (!this.wsSpot || this.wsSpot.readyState !== WebSocket.OPEN) {
+          this.connectSpotWebSocket();
+        }
         
-        // Esperar un momento antes de intentar reconectar
-        setTimeout(() => this.connectWebSockets(), 100);
+        if (!this.wsPerpetual || this.wsPerpetual.readyState !== WebSocket.OPEN) {
+          this.connectPerpetualWebSocket();
+        }
       }, delay);
     } else {
       this.logger.error('Max reconnection attempts reached');

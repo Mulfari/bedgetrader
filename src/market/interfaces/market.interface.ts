@@ -46,4 +46,6 @@ export interface MarketWebSocketMessage {
   ts?: number;
   data?: any;
   code?: number;
+  op?: string;
+  req_id?: string;
 } 
