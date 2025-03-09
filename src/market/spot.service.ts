@@ -90,7 +90,6 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
         };
         
         this.ws.send(JSON.stringify(subscribeMsg));
-        this.logger.log(`Subscribed to tickers: ${symbols.join(', ')}`);
       });
 
       this.ws.on('message', (data: WebSocket.Data) => {
@@ -104,8 +103,6 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
             const symbol = symbolWithUsdt.replace('USDT', '');
             
             if (this.symbols.includes(symbol)) {
-              this.logger.debug(`Received ticker update for ${symbol}: ${JSON.stringify(ticker)}`);
-              
               // Actualizar el ticker
               const existingTicker = this.spotTickers.get(symbol);
               if (existingTicker) {
@@ -133,9 +130,6 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
                   
                   // Actualizar el ticker en el mapa
                   this.spotTickers.set(symbol, updatedTicker);
-                  
-                  // Log para depuración
-                  this.logger.debug(`Updated ticker for ${symbol}: ${JSON.stringify(updatedTicker)}`);
                 } else {
                   this.logger.warn(`Invalid lastPrice in ticker update for ${symbol}: ${ticker.lastPrice}`);
                 }
@@ -226,7 +220,7 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
 
   async fetchInitialData(): Promise<void> {
     try {
-      this.logger.log('Fetching initial spot market data from Bybit API...');
+      this.logger.log('Fetching initial spot market data...');
       
       // Contador de símbolos con datos válidos
       let validDataCount = 0;
@@ -234,8 +228,6 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
       // Obtener datos de la API de Bybit para cada símbolo
       for (const symbol of this.symbols) {
         try {
-          this.logger.log(`Fetching data for ${symbol}USDT...`);
-          
           // Intentar hasta 3 veces si hay errores
           let attempts = 0;
           let success = false;
@@ -259,8 +251,6 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
                 
                 // Verificar que el precio sea válido
                 if (!isNaN(price) && price > 0) {
-                  this.logger.log(`Valid price for ${symbol}USDT: ${price}`);
-                  
                   // Obtener los mejores precios de compra/venta (bid/ask)
                   let { bidPrice, askPrice } = await this.fetchOrderbook(symbol);
                   
@@ -268,7 +258,6 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
                   if (bidPrice === '0.00' || askPrice === '0.00') {
                     bidPrice = this.formatPrice(price * 0.999); // 0.1% menos que el precio actual
                     askPrice = this.formatPrice(price * 1.001); // 0.1% más que el precio actual
-                    this.logger.log(`Using fallback prices for ${symbol}USDT: bid=${bidPrice}, ask=${askPrice}`);
                   }
                   
                   // Actualizar el ticker
@@ -371,7 +360,6 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
         askPrice = this.formatPrice(parseFloat(orderbookResponse.data.result.a[0][0]));
       }
       
-      this.logger.debug(`Got orderbook data for ${symbol}USDT: bid=${bidPrice}, ask=${askPrice}`);
       return { bidPrice, askPrice };
     } catch (error) {
       this.logger.warn(`Error fetching orderbook for ${symbol}USDT: ${error.message}`);
@@ -384,8 +372,6 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
     // Actualizar los precios de compra/venta cada 30 segundos
     this.orderbookUpdateInterval = setInterval(async () => {
       try {
-        this.logger.log('Updating orderbook prices...');
-        
         // Actualizar los precios de compra/venta para los símbolos más populares
         const popularSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'];
         
@@ -402,7 +388,6 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
                   bidPrice,
                   askPrice
                 });
-                this.logger.debug(`Updated orderbook prices for ${symbol}: bid=${bidPrice}, ask=${askPrice}`);
               }
             }
           } catch (error) {
