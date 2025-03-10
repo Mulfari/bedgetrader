@@ -55,12 +55,12 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
       
       // Solo intentar obtener datos nuevamente si la API es accesible y hay valores en cero
       if (hasZeroValues && apiAccessible) {
-        this.logger.warn('Some tickers have zero values after initial data fetch');
+        this.logger.debug('Some tickers have zero values after initial data fetch');
         // Intentar obtener datos nuevamente
         await this.fetchInitialData();
       } else if (hasZeroValues) {
         // Si la API no es accesible pero hay valores en cero, solo registrar la advertencia
-        this.logger.warn('Some tickers have zero values after initial data fetch');
+        this.logger.debug('Some tickers have zero values after initial data fetch');
       }
       
       // Iniciar conexión WebSocket
@@ -231,7 +231,8 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
 
   async fetchInitialData(): Promise<void> {
     try {
-      this.logger.log('Fetching initial spot market data...');
+      // Reducir nivel de log a debug
+      this.logger.debug('Fetching initial spot market data...');
       
       // Verificar conectividad a la API primero
       try {
@@ -243,7 +244,7 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
       } catch (error) {
         // Si hay un error 403, es probable que todas las solicitudes fallen
         if (error.response && error.response.status === 403) {
-          this.logger.error(`API access forbidden (403). Posible IP restriction or rate limiting. Will rely on WebSocket data.`);
+          this.logger.warn(`API access forbidden (403). Will rely on WebSocket data.`);
           // No intentar más solicitudes HTTP si hay un error 403
           throw new Error('API access forbidden (403)');
         }
@@ -323,7 +324,7 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
               attempts++;
               // Solo registrar el primer intento fallido para reducir logs
               if (attempts === 1) {
-                this.logger.error(`Error fetching data for ${symbol}USDT (attempt ${attempts}): ${error.message}`);
+                this.logger.debug(`Error fetching data for ${symbol}USDT (attempt ${attempts}): ${error.message}`);
               }
               // Esperar un poco antes de reintentar
               await new Promise(resolve => setTimeout(resolve, 1000));
@@ -332,21 +333,26 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
           
           if (!success) {
             // Solo registrar una vez el fallo después de todos los intentos
-            this.logger.error(`Failed to fetch data for ${symbol}USDT after ${attempts} attempts`);
+            this.logger.debug(`Failed to fetch data for ${symbol}USDT after ${attempts} attempts`);
           }
         } catch (error) {
-          this.logger.error(`Error processing ${symbol}USDT: ${error.message}`);
+          this.logger.debug(`Error processing ${symbol}USDT: ${error.message}`);
         }
       }
       
-      this.logger.log(`Initial spot market data fetched successfully for ${validDataCount}/${this.symbols.length} symbols`);
+      this.logger.debug(`Initial spot market data fetched successfully for ${validDataCount}/${this.symbols.length} symbols`);
       
       // Si no se obtuvieron datos válidos para ningún símbolo, lanzar un error
       if (validDataCount === 0) {
         this.logger.warn('No valid data obtained for any symbol. Will rely on WebSocket data.');
       }
     } catch (error) {
-      this.logger.error(`Error fetching initial spot market data: ${error.message}`);
+      // Reducir nivel de log a debug para errores comunes
+      if (error.message === 'API access forbidden (403)') {
+        this.logger.debug(`Error fetching initial spot market data: ${error.message}`);
+      } else {
+        this.logger.error(`Error fetching initial spot market data: ${error.message}`);
+      }
     }
   }
 

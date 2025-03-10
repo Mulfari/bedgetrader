@@ -79,12 +79,12 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         );
         
         if (hasZeroValues) {
-          this.logger.warn('Some perpetual tickers have zero values after initial data fetch');
+          this.logger.debug('Some perpetual tickers have zero values after initial data fetch');
           // No intentamos obtener datos nuevamente, confiaremos en WebSocket
         }
       } catch (error) {
         // Si hay un error al obtener datos iniciales, continuamos con WebSocket
-        this.logger.warn(`Could not fetch initial data via REST API: ${error.message}. Will rely on WebSocket data.`);
+        this.logger.debug(`Could not fetch initial data via REST API: ${error.message}. Will rely on WebSocket data.`);
       }
       
       // Iniciar conexión WebSocket
@@ -279,7 +279,8 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
 
   async fetchInitialData(): Promise<void> {
     try {
-      this.logger.log('Fetching initial perpetual market data...');
+      // Reducir nivel de log a debug
+      this.logger.debug('Fetching initial perpetual market data...');
       
       // Verificar conectividad a la API primero
       try {
@@ -291,7 +292,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
       } catch (error) {
         // Si hay un error 403, es probable que todas las solicitudes fallen
         if (error.response && error.response.status === 403) {
-          this.logger.error(`API access forbidden (403). Posible IP restriction or rate limiting. Will rely on WebSocket data.`);
+          this.logger.warn(`API access forbidden (403). Will rely on WebSocket data.`);
           // No intentar más solicitudes HTTP si hay un error 403
           throw new Error('API access forbidden (403)');
         }
@@ -309,19 +310,24 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         } catch (error) {
           // Solo registrar el error una vez por símbolo, no por cada intento
           if (!error.message.includes('after 3 attempts')) {
-            this.logger.error(`Error processing ${symbol}USDT: ${error.message}`);
+            this.logger.debug(`Error processing ${symbol}USDT: ${error.message}`);
           }
         }
       }
       
-      this.logger.log(`Initial perpetual market data fetched successfully for ${validDataCount}/${this.symbols.length} symbols`);
+      this.logger.debug(`Initial perpetual market data fetched successfully for ${validDataCount}/${this.symbols.length} symbols`);
       
       // Si no se obtuvieron datos válidos para ningún símbolo, lanzar un error
       if (validDataCount === 0) {
         this.logger.warn('No valid data obtained for any symbol. Will rely on WebSocket data.');
       }
     } catch (error) {
-      this.logger.error(`Error fetching initial perpetual market data: ${error.message}`);
+      // Reducir nivel de log a debug para errores comunes
+      if (error.message === 'API access forbidden (403)') {
+        this.logger.debug(`Error fetching initial perpetual market data: ${error.message}`);
+      } else {
+        this.logger.error(`Error fetching initial perpetual market data: ${error.message}`);
+      }
     }
   }
   
@@ -370,7 +376,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
             : 0;
         } catch (fundingError) {
           // Si falla la obtención de funding, continuar con el resto de datos
-          this.logger.warn(`Could not fetch funding data for ${symbol}USDT: ${fundingError.message}`);
+          this.logger.debug(`Could not fetch funding data for ${symbol}USDT: ${fundingError.message}`);
         }
         
         // Obtener datos del orderbook
@@ -395,7 +401,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
           }
         } catch (orderbookError) {
           // Si falla la obtención del orderbook, usar precios aproximados
-          this.logger.warn(`Could not fetch orderbook for ${symbol}USDT: ${orderbookError.message}`);
+          this.logger.debug(`Could not fetch orderbook for ${symbol}USDT: ${orderbookError.message}`);
           const price = parseFloat(ticker.lastPrice);
           bidPrice = this.formatPrice(price * 0.999);
           askPrice = this.formatPrice(price * 1.001);
@@ -438,7 +444,10 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         
         success = true;
       } catch (error) {
-        this.logger.error(`Error fetching data for ${symbol}USDT (attempt ${attempts + 1}): ${error.message}`);
+        // Solo registrar el primer intento para reducir logs
+        if (attempts === 0) {
+          this.logger.debug(`Error fetching data for ${symbol}USDT (attempt ${attempts + 1}): ${error.message}`);
+        }
         attempts++;
         // Esperar un poco antes de reintentar
         await new Promise(resolve => setTimeout(resolve, 1000));
