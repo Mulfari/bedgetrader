@@ -15,7 +15,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private readonly RECONNECT_INTERVAL = 5000;
 
   private initializeMarketData() {
-    const initialPairs = ['BTC', 'ETH', 'SOL'];
+    const initialPairs = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'LINK'];
     initialPairs.forEach(symbol => {
       // Inicializar datos para spot
       this.marketData.set(`${symbol}USDT-SPOT`, {
@@ -308,7 +308,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     }
     
     try {
-      const symbols = ['BTC', 'ETH', 'SOL'];
+      const symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'LINK'];
       const subscribeMessage = {
         op: 'subscribe',
         args: symbols.map(symbol => `tickers.${symbol}USDT`)

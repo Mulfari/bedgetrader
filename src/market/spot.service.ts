@@ -7,7 +7,7 @@ import WebSocket from 'ws';
 export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SpotMarketService.name);
   private spotTickers: Map<string, SpotMarketTicker> = new Map();
-  private readonly symbols = ['BTC', 'ETH', 'SOL'];
+  private readonly symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'LINK'];
   private ws: WebSocket | null = null;
   private wsConnected = false;
   private reconnectAttempts = 0;
@@ -457,7 +457,7 @@ export class SpotMarketService implements OnModuleInit, OnModuleDestroy {
       if (!this.wsConnected) {
         try {
           // Actualizar los precios de compra/venta para los símbolos más populares
-          const popularSymbols = ['BTC', 'ETH', 'SOL'];
+          const popularSymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'LINK'];
           
           for (const symbol of popularSymbols) {
             try {
