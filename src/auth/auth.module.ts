@@ -6,6 +6,8 @@ import { JwtStrategy } from "./jwt.strategy";
 import { PrismaModule } from "../prisma.module";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { UserProfileController } from "./user-profile.controller";
+import { SubaccountsModule } from "../subaccounts/subaccounts.module";
+import { SubaccountsService } from "../subaccounts/subaccounts.service";
 
 @Module({
   imports: [
@@ -19,9 +21,10 @@ import { UserProfileController } from "./user-profile.controller";
       }),
     }),
     PrismaModule,
+    SubaccountsModule, // Importar el módulo de subcuentas
   ],
   controllers: [AuthController, UserProfileController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, SubaccountsService], // Añadir el servicio de subcuentas
   exports: [JwtModule],
 })
 export class AuthModule {}
