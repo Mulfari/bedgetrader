@@ -9,6 +9,7 @@ import { ConfigModule } from "@nestjs/config";
 import { ProxyTestModule } from './proxy-test/proxy-test.module';
 import { AccountDetailsModule } from './account-details/account-details.module';
 import { MarketModule } from './market/market.module';
+import { OperationsModule } from './operations/operations.module'; // ✅ Importamos OperationsModule
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { MarketModule } from './market/market.module';
     ProxyTestModule,
     AccountDetailsModule, // ✅ Módulo de subcuentas
     MarketModule,
+    OperationsModule, // ✅ Módulo de operaciones
     JwtModule.register({
       secret: process.env.JWT_SECRET || "default_secret", // ✅ Usa JWT_SECRET del .env
       signOptions: { expiresIn: "7d" }, // ✅ Token válido por 7 días
