@@ -7,10 +7,7 @@ import WebSocket from 'ws';
 export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PerpetualMarketService.name);
   private perpetualTickers: Map<string, PerpetualMarketTicker> = new Map();
-  private readonly symbols = [
-    'BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'LINK',
-    'BOME', 'ICP', 'WUSDT', 'RUNE', 'ENA', 'LAI', 'TON', 'BRETT', 'TRX', 'WIF'
-  ];
+  private readonly symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'ADA', 'DOT', 'LINK'];
   private ws: WebSocket | null = null;
   private wsConnected = false;
   private reconnectAttempts = 0;
@@ -74,7 +71,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
       
       // Obtener datos iniciales mediante REST API
       try {
-        await this.fetchInitialData();
+      await this.fetchInitialData();
         
         // Verificar si hay tickers con valores en 0 después de la carga inicial
         const hasZeroValues = Array.from(this.perpetualTickers.values()).some(ticker => 
@@ -141,8 +138,8 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
           if (message.topic && message.topic.startsWith('tickers.') && message.data) {
             const ticker = message.data;
             const symbolWithUsdt = message.topic.split('.')[1];
-            const symbol = symbolWithUsdt.replace('USDT', '');
-            
+          const symbol = symbolWithUsdt.replace('USDT', '');
+          
             if (this.symbols.includes(symbol)) {
               // Actualizar el ticker
               const existingTicker = this.perpetualTickers.get(symbol);
@@ -363,7 +360,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         const ticker = tickerResponse.data.result.list[0];
         
         // Obtener datos de funding
-        let fundingRate = 0;
+              let fundingRate = 0;
         try {
           const fundingResponse = await axios.get(`https://api.bybit.com/v5/market/funding/history`, {
             params: {
@@ -387,10 +384,10 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         let askPrice = '0.00';
         try {
           const orderbookResponse = await axios.get(`https://api.bybit.com/v5/market/orderbook`, {
-            params: {
-              category: 'linear',
-              symbol: `${symbol}USDT`,
-              limit: 1
+                    params: {
+                      category: 'linear',
+                      symbol: `${symbol}USDT`,
+                      limit: 1
             },
             timeout: 5000
           });
@@ -408,9 +405,9 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
           const price = parseFloat(ticker.lastPrice);
           bidPrice = this.formatPrice(price * 0.999);
           askPrice = this.formatPrice(price * 1.001);
-        }
-        
-        // Formatear los datos
+              }
+              
+              // Formatear los datos
         const price = parseFloat(ticker.lastPrice);
         const changePercent = parseFloat(ticker.price24hPcnt) * 100;
         
@@ -425,9 +422,9 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
         
         // Actualizar el ticker
         this.perpetualTickers.set(symbol, {
-          symbol,
-          price: price.toFixed(2),
-          lastPrice: price.toFixed(2),
+                symbol,
+                price: price.toFixed(2),
+                lastPrice: price.toFixed(2),
           markPrice: ticker.markPrice ? parseFloat(ticker.markPrice).toFixed(2) : '0.00',
           indexPrice: ticker.indexPrice ? parseFloat(ticker.indexPrice).toFixed(2) : '0.00',
           change: `${changePercent.toFixed(2)}%`,
@@ -435,18 +432,18 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
           high24h: ticker.highPrice24h ? parseFloat(ticker.highPrice24h).toFixed(2) : '0.00',
           low24h: ticker.lowPrice24h ? parseFloat(ticker.lowPrice24h).toFixed(2) : '0.00',
           volumeUSDT: ticker.turnover24h ? this.formatVolume(parseFloat(ticker.turnover24h)) : '0',
-          marketType: 'perpetual',
+                marketType: 'perpetual',
           openInterest: ticker.openInterest ? `${parseFloat(ticker.openInterest).toFixed(2)} ${symbol}` : `0 ${symbol}`,
-          fundingRate: `${fundingRate.toFixed(4)}%`,
+                fundingRate: `${fundingRate.toFixed(4)}%`,
           nextFundingTime: ticker.nextFundingTime || Date.now() + 8 * 60 * 60 * 1000,
-          leverage: '10x',
+                leverage: '10x',
           bidPrice,
           askPrice,
-          favorite: false
+                favorite: false
         });
         
         success = true;
-      } catch (error) {
+          } catch (error) {
         // Solo registrar el primer intento para reducir logs
         if (attempts === 0) {
           this.logger.debug(`Error fetching data for ${symbol}USDT (attempt ${attempts + 1}): ${error.message}`);
@@ -492,7 +489,7 @@ export class PerpetualMarketService implements OnModuleInit, OnModuleDestroy {
     this.logger.warn('WebSocket not connected or zero values detected, fetching data via REST API...');
     
     try {
-      await this.fetchInitialData();
+    await this.fetchInitialData();
     } catch (error) {
       // No necesitamos registrar el error aquí ya que fetchInitialData ya lo hace
     }
