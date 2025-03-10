@@ -69,9 +69,9 @@ export class AuthService {
       }
 
       const token = await this.generateToken(user);
-      console.log("✅ Usuario autenticado:", { id: user.id, email: user.email });
+      console.log("✅ Usuario autenticado:", { id: user.id, email: user.email, name: user.name });
 
-      return { id: user.id, email: user.email, token };
+      return { id: user.id, email: user.email, name: user.name, token };
     } catch (error) {
       console.error("❌ Error en la validación del usuario:", error);
       throw new UnauthorizedException('Error en la autenticación.');

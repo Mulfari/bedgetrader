@@ -36,24 +36,58 @@ export class AuthController {
         // Obtener subcuentas del usuario
         const subAccounts = await this.subaccountsService.getSubAccounts(user.id);
         
-        // Devolver respuesta completa con token y subcuentas
+        // Obtener balances para cada subcuenta
+        const subAccountsWithBalances = await Promise.all(
+          subAccounts.map(async (subAccount) => {
+            try {
+              console.log(`🔄 Obteniendo balance para subcuenta ${subAccount.id}`);
+              const balance = await this.subaccountsService.getSubAccountBalance(subAccount.id, user.id);
+              
+              // Combinar la subcuenta con su balance
+              return {
+                ...subAccount,
+                balance: balance.balance || 0,
+                assets: balance.assets || [],
+                performance: balance.performance || 0,
+                lastUpdate: balance.lastUpdate || Date.now()
+              };
+            } catch (error) {
+              console.error(`❌ Error al obtener balance para subcuenta ${subAccount.id}:`, error.message);
+              
+              // Si hay un error, devolver la subcuenta sin balance
+              return {
+                ...subAccount,
+                balance: 0,
+                assets: [],
+                performance: 0,
+                lastUpdate: Date.now(),
+                error: error.message
+              };
+            }
+          })
+        );
+        
+        console.log(`✅ Obtenidos balances para ${subAccountsWithBalances.length} subcuentas`);
+        
+        // Devolver respuesta completa con token, subcuentas y sus balances
         return {
           message: 'Autenticación exitosa',
           access_token,
           user: {
             id: user.id,
-            email: user.email
+            email: user.email,
+            name: user.name
           },
-          subAccounts
+          subAccounts: subAccountsWithBalances
         };
       } else {
         throw new HttpException('Credenciales inválidas', HttpStatus.UNAUTHORIZED);
       }
     } catch (error) {
-      console.error("Error en el proceso de login:", error);
+      console.error("Error en login:", error);
       throw new HttpException(
-        error.message || 'Error en el proceso de autenticación', 
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR
+        error.message || 'Error en la autenticación', 
+        error.status || HttpStatus.UNAUTHORIZED
       );
     }
   }
