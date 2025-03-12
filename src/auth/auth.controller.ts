@@ -58,17 +58,6 @@ export class AuthController {
               console.log(`📊 Obteniendo posiciones abiertas para ${subAccount.name}...`);
               const openPositions = await this.positionsService.getBybitOpenPositions(subAccount);
               
-              // Calcular la cantidad de posiciones abiertas
-              const openPositionsCount = openPositions && openPositions.result && openPositions.result.list 
-                ? openPositions.result.list.length 
-                : 0;
-              
-              if (openPositionsCount > 0) {
-                console.log(`✅ Se encontraron ${openPositionsCount} posiciones abiertas para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
-              } else {
-                console.log(`⚠️ No se encontraron posiciones abiertas para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
-              }
-              
               // Obtener posiciones cerradas de los últimos 180 días (6 meses)
               console.log(`📊 Obteniendo posiciones cerradas de los últimos 180 días (6 meses) para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})...`);
               
@@ -87,8 +76,7 @@ export class AuthController {
                 balance: balance.balance || 0,
                 assets: balance.assets || [],
                 performance: balance.performance || 0,
-                lastUpdate: balance.lastUpdate || Date.now(),
-                openPositionsCount: openPositionsCount
+                lastUpdate: balance.lastUpdate || Date.now()
               };
             } catch (error) {
               console.error(`❌ Error al procesar subcuenta ${subAccount.name}:`, error.message);
@@ -100,7 +88,6 @@ export class AuthController {
                 assets: [],
                 performance: 0,
                 lastUpdate: Date.now(),
-                openPositionsCount: 0,
                 error: error.message
               };
             }
@@ -110,10 +97,6 @@ export class AuthController {
         // Mostrar resumen de balances
         console.log(`💰 Balance total del usuario: $${totalBalance.toFixed(2)} USD`);
         
-        // Calcular el total de posiciones abiertas
-        const totalOpenPositions = subAccountsWithBalances.reduce((total, acc) => total + (acc.openPositionsCount || 0), 0);
-        console.log(`📊 Total de posiciones abiertas: ${totalOpenPositions}`);
-        
         // Mostrar resumen de subcuentas
         const accountSummary = subAccountsWithBalances.map(acc => {
           // Crear un objeto con las propiedades básicas
@@ -122,7 +105,6 @@ export class AuthController {
             Exchange: acc.exchange,
             Tipo: acc.isDemo ? 'DEMO' : 'REAL',
             Balance: `$${acc.balance.toFixed(2)} USD`,
-            PosicionesAbiertas: acc.openPositionsCount || 0,
             Error: '-'
           };
           
@@ -146,7 +128,6 @@ export class AuthController {
             email: user.email,
             name: user.name
           },
-          totalOpenPositions,
           subAccounts: subAccountsWithBalances
         };
       } else {
