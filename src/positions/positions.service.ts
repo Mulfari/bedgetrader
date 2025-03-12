@@ -46,7 +46,10 @@ export class PositionsService {
           - RecvWindow: ${recvWindow}`);
 
         // QueryString para obtener posiciones
-        const queryParams = { category: "linear" };
+        const queryParams = { 
+          category: "linear",
+          settleCoin: "USDT"
+        };
         const queryString = new URLSearchParams(queryParams).toString();
 
         // Crear el string para firmar
