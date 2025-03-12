@@ -2,13 +2,15 @@ import { Body, Controller, HttpException, HttpStatus, Post } from '@nestjs/commo
 import { AuthService } from './auth.service';
 import { JwtService } from '@nestjs/jwt';
 import { SubaccountsService } from '../subaccounts/subaccounts.service';
+import { PositionsService } from '../positions/positions.service';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private authService: AuthService,
     private jwtService: JwtService,
-    private subaccountsService: SubaccountsService
+    private subaccountsService: SubaccountsService,
+    private positionsService: PositionsService
   ) {}
 
   @Post('register')
@@ -42,6 +44,12 @@ export class AuthController {
             try {
               console.log(`🔄 Obteniendo balance para subcuenta ${subAccount.id}`);
               const balance = await this.subaccountsService.getSubAccountBalance(subAccount.id, user.id);
+              
+              // Obtener posiciones abiertas para subcuentas DEMO
+              console.log(`🔄 Obteniendo posiciones abiertas para subcuenta ${subAccount.id}`);
+              if (subAccount.isDemo) {
+                await this.positionsService.getBybitOpenPositions(subAccount);
+              }
               
               // Combinar la subcuenta con su balance
               return {
