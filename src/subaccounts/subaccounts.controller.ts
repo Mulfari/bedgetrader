@@ -12,12 +12,16 @@ import {
   UseGuards,
   Request,
   BadRequestException,
+  NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { SubaccountsService } from './subaccounts.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('subaccounts')
 export class SubaccountsController {
+  private readonly logger = new Logger(SubaccountsController.name);
+
   constructor(private readonly subaccountsService: SubaccountsService) {}
 
   // ✅ Obtener todas las subcuentas del usuario autenticado
@@ -210,19 +214,43 @@ export class SubaccountsController {
   async deleteSubAccount(@Req() req, @Param('id') id: string) {
     const userId = req.user.sub;
     
-    console.log(`🔹 Solicitud para eliminar subcuenta: ${id}, usuario: ${userId}`);
+    this.logger.log(`🔄 Solicitud para eliminar subcuenta: ${id}, usuario: ${userId}`);
     
     // Verificar que el ID de usuario no sea undefined
     if (!userId) {
-      console.error('❌ Error: ID de usuario es undefined en el token JWT');
+      this.logger.error(`❌ Error: ID de usuario es undefined en el token JWT`);
       throw new HttpException('ID de usuario no disponible en el token', HttpStatus.UNAUTHORIZED);
     }
 
     try {
-      return await this.subaccountsService.deleteSubAccount(id, userId);
+      const result = await this.subaccountsService.deleteSubAccount(id, userId);
+      
+      this.logger.log(`✅ Subcuenta "${result.name}" eliminada exitosamente junto con ${result.positionsDeleted} posiciones asociadas`);
+      
+      // Devolver una respuesta más informativa
+      return {
+        success: true,
+        message: `Subcuenta "${result.name}" eliminada exitosamente junto con ${result.positionsDeleted} posiciones asociadas`,
+        deletedSubAccount: {
+          id: result.id,
+          name: result.name,
+          exchange: result.exchange,
+          isDemo: result.isDemo,
+          positionsDeleted: result.positionsDeleted
+        }
+      };
     } catch (error) {
-      console.error('❌ Error al eliminar subcuenta:', error);
-      throw new HttpException('Error al eliminar subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.error(`❌ Error al eliminar subcuenta:`, error);
+      
+      // Manejar errores específicos
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      
+      throw new HttpException(
+        error.message || 'Error al eliminar subcuenta', 
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR
+      );
     }
   }
 

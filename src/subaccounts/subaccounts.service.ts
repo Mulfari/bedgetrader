@@ -550,17 +550,50 @@ export class SubaccountsService {
     }
   }
 
-  // ✅ Eliminar una subcuenta
+  // ✅ Eliminar una subcuenta y todas sus posiciones asociadas
   async deleteSubAccount(id: string, userId: string) {
+    this.logger.log(`🔄 Iniciando eliminación de subcuenta ${id} para usuario ${userId}`);
+    
     try {
-      const subAccount = await this.prisma.subAccount.findUnique({ where: { id } });
+      // Verificar que la subcuenta existe y pertenece al usuario
+      const subAccount = await this.prisma.subAccount.findUnique({ 
+        where: { id },
+        include: { positions: { select: { id: true } } } // Incluir solo los IDs de las posiciones para contar
+      });
 
-      if (!subAccount || subAccount.userId !== userId) {
-        throw new HttpException('Subcuenta no encontrada', HttpStatus.NOT_FOUND);
+      if (!subAccount) {
+        this.logger.error(`❌ Subcuenta ${id} no encontrada`);
+        throw new NotFoundException('Subcuenta no encontrada');
       }
 
-      return await this.prisma.subAccount.delete({ where: { id } });
+      if (subAccount.userId !== userId) {
+        this.logger.error(`❌ La subcuenta ${id} no pertenece al usuario ${userId}`);
+        throw new HttpException('No tienes permiso para eliminar esta subcuenta', HttpStatus.FORBIDDEN);
+      }
+
+      // Contar las posiciones asociadas
+      const positionsCount = subAccount.positions ? subAccount.positions.length : 0;
+      this.logger.log(`🔍 La subcuenta ${id} (${subAccount.name}) tiene ${positionsCount} posiciones asociadas que también serán eliminadas`);
+
+      // Eliminar la subcuenta (las posiciones se eliminarán automáticamente por la relación onDelete: Cascade)
+      const deletedSubAccount = await this.prisma.subAccount.delete({ 
+        where: { id },
+        include: { user: { select: { email: true } } } // Incluir email del usuario para el log
+      });
+
+      this.logger.log(`✅ Subcuenta ${deletedSubAccount.name} eliminada exitosamente junto con ${positionsCount} posiciones asociadas`);
+      
+      return {
+        ...deletedSubAccount,
+        positionsDeleted: positionsCount
+      };
     } catch (error) {
+      // Manejar errores específicos
+      if (error instanceof NotFoundException || error instanceof HttpException) {
+        throw error;
+      }
+      
+      this.logger.error(`❌ Error al eliminar subcuenta ${id}:`, error);
       throw new HttpException('Error al eliminar subcuenta', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
