@@ -49,6 +49,10 @@ export class AuthController {
               console.log(`🔄 Obteniendo posiciones abiertas para subcuenta ${subAccount.id} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
               await this.positionsService.getBybitOpenPositions(subAccount);
               
+              // Obtener posiciones cerradas de los últimos 7 días
+              console.log(`🔄 Obteniendo posiciones cerradas de los últimos 7 días para subcuenta ${subAccount.id} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
+              await this.positionsService.getBybitClosedPositions(subAccount);
+              
               // Combinar la subcuenta con su balance
               return {
                 ...subAccount,

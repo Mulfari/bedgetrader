@@ -39,4 +39,37 @@ export interface BybitPositionResponse {
   };
   retExtInfo: Record<string, any>;
   time: number;
+}
+
+// Interfaz para las operaciones cerradas
+export interface BybitClosedPosition {
+  symbol: string;
+  orderId: string;
+  side: string;
+  qty: string;
+  orderPrice: string;
+  orderType: string;
+  execType: string;
+  closedSize: string;
+  cumEntryValue: string;
+  avgEntryPrice: string;
+  cumExitValue: string;
+  avgExitPrice: string;
+  closedPnl: string;
+  fillCount: string;
+  leverage: string;
+  createdTime: string;
+  updatedTime: string;
+}
+
+export interface BybitClosedPositionResponse {
+  retCode: number;
+  retMsg: string;
+  result: {
+    list: BybitClosedPosition[];
+    nextPageCursor: string;
+    category: string;
+  };
+  retExtInfo: Record<string, any>;
+  time: number;
 } 
