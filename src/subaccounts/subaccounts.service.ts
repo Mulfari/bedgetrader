@@ -1,4 +1,4 @@
-import { Injectable, HttpException, HttpStatus, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import axios from 'axios';
 import { HttpsProxyAgent } from 'https-proxy-agent';
@@ -8,13 +8,17 @@ import * as crypto from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { SubAccount } from '../types';
+import { PositionsService } from '../positions/positions.service';
 
 @Injectable()
 export class SubaccountsService {
+  private readonly logger = new Logger(SubaccountsService.name);
+
   constructor(
     private prisma: PrismaService,
     // private readonly httpService: HttpService, // Comentamos este servicio
     private readonly configService: ConfigService,
+    private positionsService: PositionsService
   ) {}
 
   // ✅ Obtener subcuentas del usuario autenticado
@@ -444,49 +448,87 @@ export class SubaccountsService {
     }
   }
 
-  // ✅ Crear una nueva subcuenta
-  async createSubAccount(userId: string, exchange: string, apiKey: string, secretKey: string, name: string, isDemo: boolean = false): Promise<SubAccount> {
+  /**
+   * Crea una nueva subcuenta para un usuario
+   * @param userId ID del usuario
+   * @param exchange Exchange de la subcuenta
+   * @param apiKey API Key para el exchange
+   * @param secretKey Secret Key para el exchange
+   * @param name Nombre de la subcuenta
+   * @param isDemo Indica si es una cuenta de demostración
+   * @returns La subcuenta creada
+   */
+  async createSubAccount(
+    userId: string, 
+    exchange: string, 
+    apiKey: string, 
+    secretKey: string, 
+    name: string, 
+    isDemo: boolean = false
+  ): Promise<SubAccount> {
+    this.logger.log(`🔄 Creando subcuenta para usuario ${userId}:
+      - Exchange: ${exchange}
+      - Nombre: ${name}
+      - API Key: ${apiKey ? apiKey.substring(0, 5) + '...' : 'No disponible'}
+      - Demo: ${isDemo ? 'Sí' : 'No'}
+    `);
+
     try {
-      console.log(`🔹 Creando subcuenta para usuario: ${userId}`);
-      console.log(`🔹 Datos: exchange=${exchange}, name=${name}, apiKey=${apiKey.substring(0, 5)}..., isDemo=${isDemo}`);
-      
-      // Verificar que el usuario existe antes de crear la subcuenta
+      // Verificar que el usuario existe
       const user = await this.prisma.user.findUnique({
         where: { id: userId }
       });
-      
+
       if (!user) {
-        console.error(`❌ Usuario con ID ${userId} no encontrado`);
-        throw new HttpException('Usuario no encontrado', HttpStatus.NOT_FOUND);
+        this.logger.error(`❌ Usuario con ID ${userId} no encontrado`);
+        throw new NotFoundException(`Usuario con ID ${userId} no encontrado`);
       }
-      
-      const newSubAccount = await this.prisma.subAccount.create({
-        data: { 
-          userId, 
-          exchange, 
-          apiKey, 
-          secretKey, 
+
+      // Crear la subcuenta
+      const subaccount = await this.prisma.subAccount.create({
+        data: {
+          userId,
+          exchange,
+          apiKey,
+          secretKey,
           name,
           isDemo
-        },
-        include: { user: true }
+        }
       });
-      
-      console.log(`✅ Subcuenta creada con éxito: ${newSubAccount.id}`);
-      return newSubAccount;
-    } catch (error) {
-      console.error('❌ Error detallado al crear subcuenta:', error);
-      
-      if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        if (error.code === 'P2003') {
-          throw new HttpException('Error de clave foránea: el usuario no existe', HttpStatus.BAD_REQUEST);
+
+      this.logger.log(`✅ Subcuenta creada exitosamente: ${subaccount.id}`);
+
+      // Si es una subcuenta de Bybit, obtener y guardar las posiciones cerradas de los últimos 7 días
+      if (exchange.toLowerCase() === 'bybit') {
+        this.logger.log(`🔄 Obteniendo posiciones cerradas de los últimos 7 días para la nueva subcuenta de Bybit...`);
+        
+        try {
+          // Obtener las posiciones cerradas
+          const closedPositions = await this.positionsService.getBybitClosedPositions(subaccount);
+          
+          if (closedPositions) {
+            // Guardar las posiciones cerradas en la base de datos
+            const savedCount = await this.positionsService.saveClosedPositions(subaccount, closedPositions);
+            this.logger.log(`✅ Se guardaron ${savedCount} posiciones cerradas para la nueva subcuenta de Bybit`);
+          } else {
+            this.logger.warn(`⚠️ No se pudieron obtener posiciones cerradas para la nueva subcuenta de Bybit`);
+          }
+        } catch (error) {
+          this.logger.error(`❌ Error al obtener y guardar posiciones cerradas para la nueva subcuenta de Bybit:`, error);
+          // No lanzamos el error para no interrumpir la creación de la subcuenta
         }
       }
+
+      return subaccount;
+    } catch (error) {
+      // Manejar errores específicos de Prisma
+      if (error.code === 'P2003') {
+        this.logger.error(`❌ Error de clave foránea: ${error.message}`);
+        throw new NotFoundException(`Usuario con ID ${userId} no encontrado`);
+      }
       
-      throw new HttpException(
-        `Error al crear subcuenta: ${error.message || 'Error desconocido'}`, 
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
+      this.logger.error(`❌ Error al crear subcuenta:`, error);
+      throw error;
     }
   }
 

@@ -4,10 +4,13 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import * as crypto from 'crypto';
 import { BybitPosition, BybitPositionResponse, BybitClosedPosition, BybitClosedPositionResponse } from './position.interface';
 import { SubAccount } from '../types';
+import { PrismaService } from '../prisma.service';
 
 @Injectable()
 export class PositionsService {
   private readonly logger = new Logger(PositionsService.name);
+
+  constructor(private prisma: PrismaService) {}
 
   /**
    * Obtiene las posiciones abiertas de una subcuenta de Bybit
@@ -259,5 +262,103 @@ export class PositionsService {
     }
     
     return null;
+  }
+
+  /**
+   * Guarda las posiciones cerradas en la base de datos
+   * @param subaccount Subcuenta a la que pertenecen las posiciones
+   * @param closedPositions Posiciones cerradas a guardar
+   * @returns Número de posiciones guardadas
+   */
+  async saveClosedPositions(subaccount: SubAccount, closedPositions: BybitClosedPositionResponse): Promise<number> {
+    if (!closedPositions.result || !closedPositions.result.list || closedPositions.result.list.length === 0) {
+      this.logger.log(`⚠️ No hay posiciones cerradas para guardar en la base de datos`);
+      return 0;
+    }
+
+    this.logger.log(`🔄 Guardando ${closedPositions.result.list.length} posiciones cerradas en la base de datos...`);
+    
+    let savedCount = 0;
+    
+    try {
+      // Procesar cada posición cerrada
+      for (const position of closedPositions.result.list) {
+        try {
+          // Verificar si la posición ya existe en la base de datos
+          const existingPosition = await this.prisma.position.findFirst({
+            where: {
+              subAccountId: subaccount.id,
+              symbol: position.symbol,
+              externalId: position.orderId,
+              openedAt: new Date(parseInt(position.createdTime)),
+              closedAt: new Date(parseInt(position.updatedTime))
+            }
+          });
+
+          if (existingPosition) {
+            this.logger.log(`⏩ Posición ya existe en la base de datos: ${position.symbol} (${position.orderId})`);
+            continue;
+          }
+
+          // Calcular duración en segundos
+          const openedAt = new Date(parseInt(position.createdTime));
+          const closedAt = new Date(parseInt(position.updatedTime));
+          const durationSeconds = Math.floor((closedAt.getTime() - openedAt.getTime()) / 1000);
+
+          // Calcular porcentaje de retorno
+          const entryPrice = parseFloat(position.avgEntryPrice);
+          const exitPrice = parseFloat(position.avgExitPrice);
+          const side = position.side.toLowerCase();
+          let percentageReturn = 0;
+
+          if (side === 'buy') {
+            percentageReturn = ((exitPrice - entryPrice) / entryPrice) * 100 * parseFloat(position.leverage);
+          } else if (side === 'sell') {
+            percentageReturn = ((entryPrice - exitPrice) / entryPrice) * 100 * parseFloat(position.leverage);
+          }
+
+          // Crear la posición en la base de datos
+          await this.prisma.position.create({
+            data: {
+              subAccountId: subaccount.id,
+              userId: subaccount.userId,
+              externalId: position.orderId,
+              symbol: position.symbol,
+              positionType: 'linear',
+              side: position.side.toLowerCase(),
+              size: position.qty,
+              leverage: position.leverage,
+              entryPrice: position.avgEntryPrice,
+              exitPrice: position.avgExitPrice,
+              markPrice: position.avgExitPrice,
+              status: 'closed',
+              openedAt: openedAt,
+              closedAt: closedAt,
+              realisedPnl: position.closedPnl,
+              unrealisedPnl: '0',
+              commission: '0', // No tenemos esta información de la API
+              settlementCurrency: 'USDT', // Asumimos USDT como moneda de liquidación
+              isDemo: subaccount.isDemo,
+              exchange: subaccount.exchange,
+              category: 'linear',
+              durationSeconds: durationSeconds,
+              percentageReturn: percentageReturn,
+              maxDrawdown: 0, // No tenemos esta información de la API
+            }
+          });
+
+          savedCount++;
+          this.logger.log(`✅ Posición guardada: ${position.symbol} (${position.side}) - PnL: ${position.closedPnl}`);
+        } catch (error) {
+          this.logger.error(`❌ Error al guardar posición ${position.symbol}:`, error);
+        }
+      }
+
+      this.logger.log(`✅ Se guardaron ${savedCount} posiciones cerradas en la base de datos`);
+      return savedCount;
+    } catch (error) {
+      this.logger.error(`❌ Error al guardar posiciones cerradas:`, error);
+      return savedCount;
+    }
   }
 } 
