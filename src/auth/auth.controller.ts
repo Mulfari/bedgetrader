@@ -70,22 +70,6 @@ export class AuthController {
                 console.log(`⚠️ No se encontraron posiciones cerradas para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
               }
               
-              // Obtener operaciones spot de los últimos 90 días (3 meses)
-              console.log(`📊 Obteniendo operaciones SPOT de los últimos 90 días (3 meses) en intervalos de 7 días para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})...`);
-              
-              // Obtener operaciones spot para todas las cuentas (demo y reales)
-              const spotExecutions = await this.positionsService.getBybitSpotExecutions(subAccount);
-              
-              if (spotExecutions && spotExecutions.result && spotExecutions.result.list && spotExecutions.result.list.length > 0) {
-                console.log(`✅ Se encontraron ${spotExecutions.result.list.length} operaciones SPOT para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
-                
-                // Guardar las operaciones spot en la base de datos
-                const savedSpotCount = await this.positionsService.saveSpotExecutions(subAccount, spotExecutions);
-                console.log(`✅ Se guardaron ${savedSpotCount} operaciones SPOT para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
-              } else {
-                console.log(`⚠️ No se encontraron operaciones SPOT para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
-              }
-              
               // Combinar la subcuenta con su balance
               return {
                 ...subAccount,

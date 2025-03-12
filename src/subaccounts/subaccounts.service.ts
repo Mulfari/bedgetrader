@@ -513,18 +513,6 @@ export class SubaccountsService {
           } else {
             this.logger.warn(`⚠️ No se pudieron obtener posiciones cerradas (futuros) para la nueva subcuenta de Bybit (${isDemo ? 'DEMO' : 'REAL'})`);
           }
-          
-          // Obtener las operaciones spot
-          this.logger.log(`🔄 Obteniendo operaciones SPOT de los últimos 90 días (3 meses) en intervalos de 7 días para la nueva subcuenta de Bybit (${isDemo ? 'DEMO' : 'REAL'})...`);
-          const spotExecutions = await this.positionsService.getBybitSpotExecutions(subaccount);
-          
-          if (spotExecutions) {
-            // Guardar las operaciones spot en la base de datos
-            const savedSpotCount = await this.positionsService.saveSpotExecutions(subaccount, spotExecutions);
-            this.logger.log(`✅ Se guardaron ${savedSpotCount} operaciones SPOT para la nueva subcuenta de Bybit (${isDemo ? 'DEMO' : 'REAL'})`);
-          } else {
-            this.logger.warn(`⚠️ No se pudieron obtener operaciones SPOT para la nueva subcuenta de Bybit (${isDemo ? 'DEMO' : 'REAL'})`);
-          }
         } catch (error) {
           this.logger.error(`❌ Error al obtener y guardar operaciones para la nueva subcuenta de Bybit:`, error);
           // No lanzamos el error para no interrumpir la creación de la subcuenta
