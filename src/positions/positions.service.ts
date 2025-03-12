@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import * as crypto from 'crypto';
-import { BybitPositionResponse, BybitClosedPositionResponse } from './position.interface';
+import { BybitPosition, BybitPositionResponse, BybitClosedPosition, BybitClosedPositionResponse } from './position.interface';
 import { SubAccount } from '../types';
 
 @Injectable()
@@ -124,9 +124,19 @@ export class PositionsService {
     startTime.setDate(startTime.getDate() - 7);
     const startTimeMs = startTime.getTime();
     
+    // Mostrar información detallada sobre la subcuenta
+    this.logger.log(`🔍 Obteniendo posiciones cerradas REALES para subcuenta:
+      - ID: ${subaccount.id}
+      - Nombre: ${subaccount.name}
+      - Exchange: ${subaccount.exchange}
+      - Tipo: ${subaccount.isDemo ? 'DEMO' : 'REAL'}
+      - API Key: ${subaccount.apiKey ? subaccount.apiKey.substring(0, 5) + '...' : 'No disponible'}
+      - Periodo: Últimos 7 días (desde ${startTime.toLocaleString()})
+    `);
+    
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        this.logger.log(`🔄 Obteniendo posiciones cerradas para subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
+        this.logger.log(`🔄 Intento ${attempt}/${MAX_RETRIES} de obtener posiciones cerradas REALES`);
         
         // Configurar proxy
         const proxyUrl = "http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001";
@@ -140,11 +150,13 @@ export class PositionsService {
         const recvWindow = "5000";
 
         // QueryString para obtener posiciones cerradas
+        // Ajustamos los parámetros para obtener más resultados
         const queryParams = { 
           category: "linear",
           settleCoin: "USDT",
           startTime: startTimeMs.toString(),
-          limit: "50" // Máximo número de resultados
+          limit: "100", // Aumentamos el límite para obtener más resultados
+          cursor: "" // Inicialmente sin cursor
         };
         const queryString = new URLSearchParams(queryParams).toString();
 
@@ -166,34 +178,45 @@ export class PositionsService {
           : "https://api.bybit.com";
         
         const url = `${baseUrl}/v5/position/closed-pnl`;
+        
+        this.logger.log(`📡 Enviando solicitud a ${baseUrl} para obtener posiciones cerradas REALES`);
 
         // Hacer la solicitud a Bybit con tiempo de espera
         const axiosConfig = {
           headers,
           params: queryParams,
           httpsAgent: proxyAgent,
-          timeout: 10000, // 10 segundos
+          timeout: 15000, // Aumentamos el timeout a 15 segundos
         };
 
         const response = await axios.get(url, axiosConfig);
         
         // Si llegamos aquí, la solicitud fue exitosa
-        this.logger.log(`✅ Respuesta recibida de Bybit para posiciones cerradas`);
+        this.logger.log(`✅ Respuesta recibida de Bybit (código: ${response.status})`);
 
-        if (!response.data || response.data.retCode !== 0) {
+        // Verificar si la respuesta es válida
+        if (!response.data) {
+          throw new Error('Respuesta vacía de Bybit');
+        }
+        
+        // Verificar si hay un error en la respuesta
+        if (response.data.retCode !== 0) {
           const error = new Error(`Error en Bybit: ${response.data?.retMsg}`);
           error['bybitCode'] = response.data?.retCode;
           error['bybitMsg'] = response.data?.retMsg;
           throw error;
         }
 
-        // Mostrar las posiciones cerradas en los logs
+        // Mostrar la respuesta completa para depuración
+        this.logger.log(`📊 Respuesta completa de Bybit: ${JSON.stringify(response.data, null, 2)}`);
+
+        // Procesar las posiciones cerradas
         const closedPositions = response.data as BybitClosedPositionResponse;
         
-        if (closedPositions.result.list.length === 0) {
-          this.logger.log(`✅ No hay posiciones cerradas en los últimos 7 días para la subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
+        if (!closedPositions.result || !closedPositions.result.list || closedPositions.result.list.length === 0) {
+          this.logger.log(`⚠️ No se encontraron posiciones cerradas REALES en los últimos 7 días para la subcuenta ${subaccount.name} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
         } else {
-          this.logger.log(`✅ Posiciones cerradas en los últimos 7 días para la subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'}):`);
+          this.logger.log(`✅ Se encontraron ${closedPositions.result.list.length} posiciones cerradas REALES en los últimos 7 días para la subcuenta ${subaccount.name} (${subaccount.isDemo ? 'DEMO' : 'REAL'}):`);
           
           // Crear una tabla resumida de las posiciones cerradas
           const positionSummary = closedPositions.result.list.map((position, index) => {
@@ -201,7 +224,11 @@ export class PositionsService {
               index: index + 1,
               symbol: position.symbol,
               side: position.side,
+              qty: position.qty,
+              entryPrice: position.avgEntryPrice,
+              exitPrice: position.avgExitPrice,
               pnl: position.closedPnl,
+              leverage: position.leverage,
               fecha: new Date(parseInt(position.updatedTime)).toLocaleString()
             };
           });
@@ -212,11 +239,16 @@ export class PositionsService {
         
         return closedPositions;
       } catch (error) {
-        this.logger.error(`❌ Error al obtener posiciones cerradas para subcuenta ${subaccount.id}:`, error.message);
+        this.logger.error(`❌ Error al obtener posiciones cerradas REALES:`, error);
+        this.logger.error(`Detalles del error:`, {
+          message: error.message,
+          stack: error.stack,
+          response: error.response?.data
+        });
 
         // Si es el último intento, devolver null
         if (attempt === MAX_RETRIES) {
-          this.logger.error(`❌ No se pudieron obtener las posiciones cerradas después de ${MAX_RETRIES} intentos`);
+          this.logger.error(`❌ No se pudieron obtener las posiciones cerradas REALES después de ${MAX_RETRIES} intentos`);
           return null;
         }
 

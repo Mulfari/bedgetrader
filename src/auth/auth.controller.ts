@@ -55,10 +55,20 @@ export class AuthController {
               totalBalance += balance.balance || 0;
               
               // Obtener posiciones abiertas
-              await this.positionsService.getBybitOpenPositions(subAccount);
+              console.log(`📊 Obteniendo posiciones abiertas para ${subAccount.name}...`);
+              const openPositions = await this.positionsService.getBybitOpenPositions(subAccount);
               
               // Obtener posiciones cerradas de los últimos 7 días
-              await this.positionsService.getBybitClosedPositions(subAccount);
+              console.log(`📊 Obteniendo posiciones cerradas REALES para ${subAccount.name}...`);
+              
+              // Obtener posiciones cerradas para todas las cuentas (demo y reales)
+              const closedPositions = await this.positionsService.getBybitClosedPositions(subAccount);
+              
+              if (closedPositions && closedPositions.result && closedPositions.result.list && closedPositions.result.list.length > 0) {
+                console.log(`✅ Se encontraron ${closedPositions.result.list.length} posiciones cerradas REALES para ${subAccount.name}`);
+              } else {
+                console.log(`⚠️ No se encontraron posiciones cerradas REALES para ${subAccount.name}`);
+              }
               
               // Combinar la subcuenta con su balance
               return {
