@@ -31,26 +31,33 @@ export class AuthController {
       const user = await this.authService.validateUser(body.email, body.password);
       
       if (user) {
+        console.log(`✅ Usuario autenticado: ${user.email}`);
+        
         // Generar token JWT
         const payload = { email: user.email, sub: user.id };
         const access_token = this.jwtService.sign(payload);
         
         // Obtener subcuentas del usuario
         const subAccounts = await this.subaccountsService.getSubAccounts(user.id);
+        console.log(`✅ Subcuentas encontradas: ${subAccounts.length}`);
         
         // Obtener balances para cada subcuenta
+        console.log(`🔄 Obteniendo balances y posiciones para todas las subcuentas...`);
+        
+        let totalBalance = 0;
         const subAccountsWithBalances = await Promise.all(
           subAccounts.map(async (subAccount) => {
             try {
-              console.log(`🔄 Obteniendo balance para subcuenta ${subAccount.id}`);
-              const balance = await this.subaccountsService.getSubAccountBalance(subAccount.id, user.id);
+              console.log(`🔍 Procesando subcuenta: ${subAccount.name} (${subAccount.exchange})`);
               
-              // Obtener posiciones abiertas para todas las subcuentas
-              console.log(`🔄 Obteniendo posiciones abiertas para subcuenta ${subAccount.id} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
+              // Obtener balance
+              const balance = await this.subaccountsService.getSubAccountBalance(subAccount.id, user.id);
+              totalBalance += balance.balance || 0;
+              
+              // Obtener posiciones abiertas
               await this.positionsService.getBybitOpenPositions(subAccount);
               
               // Obtener posiciones cerradas de los últimos 7 días
-              console.log(`🔄 Obteniendo posiciones cerradas de los últimos 7 días para subcuenta ${subAccount.id} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
               await this.positionsService.getBybitClosedPositions(subAccount);
               
               // Combinar la subcuenta con su balance
@@ -62,7 +69,7 @@ export class AuthController {
                 lastUpdate: balance.lastUpdate || Date.now()
               };
             } catch (error) {
-              console.error(`❌ Error al obtener balance para subcuenta ${subAccount.id}:`, error.message);
+              console.error(`❌ Error al procesar subcuenta ${subAccount.name}:`, error.message);
               
               // Si hay un error, devolver la subcuenta sin balance
               return {
@@ -77,7 +84,30 @@ export class AuthController {
           })
         );
         
-        console.log(`✅ Obtenidos balances para ${subAccountsWithBalances.length} subcuentas`);
+        // Mostrar resumen de balances
+        console.log(`💰 Balance total del usuario: $${totalBalance.toFixed(2)} USD`);
+        
+        // Mostrar resumen de subcuentas
+        const accountSummary = subAccountsWithBalances.map(acc => {
+          // Crear un objeto con las propiedades básicas
+          const summary = {
+            Nombre: acc.name,
+            Exchange: acc.exchange,
+            Tipo: acc.isDemo ? 'DEMO' : 'REAL',
+            Balance: `$${acc.balance.toFixed(2)} USD`,
+            Error: '-'
+          };
+          
+          // Añadir el error si existe usando casting seguro
+          if ('error' in acc) {
+            summary.Error = (acc as any).error;
+          }
+          
+          return summary;
+        });
+        
+        console.log('📊 Resumen de subcuentas:');
+        console.table(accountSummary);
         
         // Devolver respuesta completa con token, subcuentas y sus balances
         return {
@@ -94,7 +124,7 @@ export class AuthController {
         throw new HttpException('Credenciales inválidas', HttpStatus.UNAUTHORIZED);
       }
     } catch (error) {
-      console.error("Error en login:", error);
+      console.error("❌ Error en login:", error.message);
       throw new HttpException(
         error.message || 'Error en la autenticación', 
         error.status || HttpStatus.UNAUTHORIZED

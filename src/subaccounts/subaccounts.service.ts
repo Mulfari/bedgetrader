@@ -70,23 +70,108 @@ export class SubaccountsService {
 
   // Método para generar datos simulados
   private generateSimulatedData() {
-    const balance = Math.random() * 10000;
-    const performance = (Math.random() * 20) - 10; // Entre -10% y +10%
+    // Generar un balance total entre 1,000 y 50,000 USD
+    const balance = 1000 + Math.random() * 49000;
     
-    // Generar algunos activos simulados
-    const assets: Array<{coin: string; walletBalance: number; usdValue: number}> = [
-      { coin: 'BTC', walletBalance: Math.random() * 0.5, usdValue: Math.random() * 2000 },
-      { coin: 'ETH', walletBalance: Math.random() * 5, usdValue: Math.random() * 1500 },
-      { coin: 'USDT', walletBalance: Math.random() * 5000, usdValue: Math.random() * 5000 }
+    // Rendimiento entre -15% y +25%
+    const performance = (Math.random() * 40) - 15;
+    
+    // Lista de criptomonedas comunes con sus precios aproximados
+    const cryptos = [
+      { coin: 'BTC', price: 60000 + (Math.random() * 10000 - 5000) },
+      { coin: 'ETH', price: 3000 + (Math.random() * 600 - 300) },
+      { coin: 'USDT', price: 1 },
+      { coin: 'USDC', price: 1 },
+      { coin: 'BNB', price: 400 + (Math.random() * 80 - 40) },
+      { coin: 'SOL', price: 120 + (Math.random() * 30 - 15) },
+      { coin: 'XRP', price: 0.5 + (Math.random() * 0.2 - 0.1) },
+      { coin: 'ADA', price: 0.4 + (Math.random() * 0.1 - 0.05) },
+      { coin: 'DOGE', price: 0.1 + (Math.random() * 0.05 - 0.025) },
+      { coin: 'SHIB', price: 0.00002 + (Math.random() * 0.00001 - 0.000005) }
     ];
     
+    // Seleccionar entre 3 y 7 criptomonedas aleatorias
+    const selectedCryptos = [...cryptos]
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 3 + Math.floor(Math.random() * 5));
+    
+    // Distribuir el balance total entre las criptomonedas seleccionadas
+    let remainingBalance = balance;
+    const assets: Array<{coin: string; walletBalance: number; usdValue: number}> = [];
+    
+    // Asignar entre 20% y 60% a stablecoins
+    const stablecoins = selectedCryptos.filter(c => c.coin === 'USDT' || c.coin === 'USDC');
+    if (stablecoins.length > 0) {
+      const stablecoinAllocation = remainingBalance * (0.2 + Math.random() * 0.4);
+      remainingBalance -= stablecoinAllocation;
+      
+      stablecoins.forEach(stable => {
+        const allocation = stablecoinAllocation / stablecoins.length;
+        assets.push({
+          coin: stable.coin,
+          walletBalance: allocation,
+          usdValue: allocation
+        });
+      });
+    }
+    
+    // Distribuir el resto entre las demás criptomonedas
+    const nonStablecoins = selectedCryptos.filter(c => c.coin !== 'USDT' && c.coin !== 'USDC');
+    if (nonStablecoins.length > 0) {
+      nonStablecoins.forEach((crypto, index) => {
+        // El último activo recibe el balance restante
+        if (index === nonStablecoins.length - 1) {
+          const usdValue = remainingBalance;
+          const walletBalance = usdValue / crypto.price;
+          assets.push({
+            coin: crypto.coin,
+            walletBalance,
+            usdValue
+          });
+        } else {
+          // Distribuir aleatoriamente entre los demás
+          const allocation = remainingBalance * (0.1 + Math.random() * 0.3);
+          remainingBalance -= allocation;
+          
+          const walletBalance = allocation / crypto.price;
+          assets.push({
+            coin: crypto.coin,
+            walletBalance,
+            usdValue: allocation
+          });
+        }
+      });
+    }
+    
+    // Ordenar por valor USD descendente
+    assets.sort((a, b) => b.usdValue - a.usdValue);
+    
+    // Redondear valores para que sean más legibles
+    assets.forEach(asset => {
+      // Redondear cantidades según la moneda
+      if (asset.coin === 'BTC') {
+        asset.walletBalance = parseFloat(asset.walletBalance.toFixed(6));
+      } else if (asset.coin === 'ETH' || asset.coin === 'BNB' || asset.coin === 'SOL') {
+        asset.walletBalance = parseFloat(asset.walletBalance.toFixed(4));
+      } else if (asset.coin === 'SHIB') {
+        asset.walletBalance = parseFloat(asset.walletBalance.toFixed(0));
+      } else {
+        asset.walletBalance = parseFloat(asset.walletBalance.toFixed(2));
+      }
+      
+      // Redondear valores USD
+      asset.usdValue = parseFloat(asset.usdValue.toFixed(2));
+    });
+    
+    console.log(`🤖 Datos simulados generados: $${balance.toFixed(2)} USD con ${assets.length} activos`);
+    
     return {
-      balance,
-      performance,
+      balance: parseFloat(balance.toFixed(2)),
+      performance: parseFloat(performance.toFixed(2)),
       assets,
       isSimulated: true,
-      isDebug: false, // Añadir propiedad isDebug con valor por defecto false
-      isDemo: false   // Añadir propiedad isDemo con valor por defecto false
+      isDemo: false,
+      lastUpdate: Date.now()
     };
   }
 
@@ -102,7 +187,6 @@ export class SubaccountsService {
     
     // Por ahora solo soportamos Bybit
     if (subaccount.exchange.toLowerCase() === 'bybit') {
-      console.log(`🔍 Usando método específico para Bybit (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
       return this.getBybitBalance(subaccount);
     } else {
       console.error(`❌ Exchange ${subaccount.exchange} no soportado`);
@@ -117,11 +201,8 @@ export class SubaccountsService {
     
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        console.log(`🔄 Intento ${attempt}/${MAX_RETRIES} de obtener balance para subcuenta ${subaccount.id}`);
-        
         // 🔹 Configurar proxy
         const proxyUrl = "http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001";
-        console.log(`🔹 Configurando proxy: ${proxyUrl.replace(/:[^:]*@/, ':****@')}`);
         
         const proxyAgent = new HttpsProxyAgent(proxyUrl);
 
@@ -131,11 +212,6 @@ export class SubaccountsService {
         const secretKey = subaccount.secretKey;
         const recvWindow = "5000";
 
-        console.log(`🔹 Preparando autenticación:
-          - Timestamp: ${timestamp}
-          - API Key: ${apiKey.substring(0, 5)}...
-          - RecvWindow: ${recvWindow}`);
-
         // 🔹 QueryString requerido por Bybit V5
         const queryParams = { accountType: "UNIFIED" };
         const queryString = new URLSearchParams(queryParams).toString();
@@ -143,10 +219,6 @@ export class SubaccountsService {
         // 🔹 Crear el string para firmar
         const signPayload = `${timestamp}${apiKey}${recvWindow}${queryString || ""}`;
         const signature = crypto.createHmac('sha256', secretKey).update(signPayload).digest('hex');
-
-        console.log(`🔹 Generación de firma:
-          - Sign Payload: ${signPayload}
-          - Signature: ${signature}`);
 
         // 🔹 Headers actualizados para Bybit V5
         const headers = {
@@ -156,20 +228,12 @@ export class SubaccountsService {
           'X-BAPI-SIGN': signature,
         };
 
-        console.log('🔹 Headers configurados:', JSON.stringify(headers, null, 2));
-
         // 🔹 URL de Bybit para obtener el balance
         const baseUrl = subaccount.isDemo 
           ? "https://api-demo.bybit.com"
           : "https://api.bybit.com";
         
         const url = `${baseUrl}/v5/account/wallet-balance`;
-        
-        console.log(`📡 Enviando solicitud a Bybit:
-          - URL: ${url}
-          - Modo: ${subaccount.isDemo ? 'DEMO' : 'REAL'}
-          - Método: GET
-          - Params: ${JSON.stringify(queryParams)}`);
 
         // 🔹 Hacer la solicitud a Bybit con tiempo de espera
         const axiosConfig = {
@@ -179,19 +243,9 @@ export class SubaccountsService {
           timeout: 10000, // Aumentado a 10 segundos
         };
 
-        console.log('📡 Configuración de axios:', JSON.stringify({
-          ...axiosConfig,
-          httpsAgent: 'ProxyAgent'
-        }, null, 2));
-
         const response = await axios.get(url, axiosConfig);
         
         // Si llegamos aquí, la solicitud fue exitosa
-        console.log(`✅ Respuesta recibida de Bybit en el intento ${attempt}:
-          - Status: ${response.status}
-          - Status Text: ${response.statusText}
-          - Data: ${JSON.stringify(response.data, null, 2)}`);
-
         if (!response.data || response.data.retCode !== 0) {
           const error = new Error(`Error en Bybit: ${response.data?.retMsg}`);
           error['bybitCode'] = response.data?.retCode;
@@ -239,8 +293,22 @@ export class SubaccountsService {
           }
         });
         
-        console.log(`✅ Balance total calculado: ${totalBalance}`);
-        console.log(`✅ Activos procesados: ${assets.length}`);
+        // Mostrar un resumen del balance
+        console.log(`✅ Balance de ${subaccount.name} (${subaccount.isDemo ? 'DEMO' : 'REAL'}): $${totalBalance.toFixed(2)} USD con ${assets.length} activos`);
+        
+        // Mostrar los activos principales (top 3 por valor)
+        if (assets.length > 0) {
+          const topAssets = [...assets]
+            .sort((a, b) => b.usdValue - a.usdValue)
+            .slice(0, 3);
+          
+          console.log('📊 Activos principales:');
+          console.table(topAssets.map(asset => ({
+            Moneda: asset.coin,
+            Cantidad: asset.walletBalance.toFixed(6),
+            'Valor USD': asset.usdValue.toFixed(2)
+          })));
+        }
         
         return {
           balance: totalBalance,
@@ -251,14 +319,7 @@ export class SubaccountsService {
           lastUpdate: Date.now()
         };
       } catch (error) {
-        console.error(`❌ Error en intento ${attempt}/${MAX_RETRIES}:`, {
-          message: error.message,
-          bybitCode: error.bybitCode,
-          bybitMsg: error.bybitMsg,
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-          data: error.response?.data
-        });
+        console.error(`❌ Error al obtener balance:`, error.message);
 
         // Si es el último intento, lanzar el error
         if (attempt === MAX_RETRIES) {
@@ -299,11 +360,12 @@ export class SubaccountsService {
     }
   }
 
-  // ✅ Obtener el balance de una subcuenta en Bybit
+  // Obtener el balance de una subcuenta
   async getSubAccountBalance(id: string, userId: string): Promise<any> {
     try {
-      console.log(`🔍 Iniciando getSubAccountBalance para subcuenta ${id}, usuario ${userId}`);
+      console.log(`🔍 Obteniendo balance para subcuenta: ${id}`);
       
+      // Buscar la subcuenta
       const subaccount = await this.findOne(id, userId);
       
       if (!subaccount) {
@@ -311,20 +373,10 @@ export class SubaccountsService {
         throw new HttpException('Subcuenta no encontrada', HttpStatus.NOT_FOUND);
       }
       
-      console.log(`✅ Subcuenta encontrada: ${JSON.stringify({
-        id: subaccount.id,
-        exchange: subaccount.exchange,
-        isDemo: subaccount.isDemo,
-        apiKey: subaccount.apiKey ? `${subaccount.apiKey.substring(0, 5)}...` : 'no-key'
-      })}`);
-      
-      // IMPORTANTE: Siempre intentamos obtener datos reales, tanto para cuentas demo como reales
-      console.log(`🔍 Obteniendo balance para cuenta ${id} en ${subaccount.exchange} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
-      
       try {
         // Intentar obtener el balance real
         const balance = await this.getExchangeBalance(subaccount);
-        console.log(`✅ Balance obtenido correctamente para subcuenta: ${id}`);
+        console.log(`✅ Balance obtenido para ${subaccount.name}: $${balance.balance.toFixed(2)} USD`);
         
         // Si es una cuenta demo, marcamos los datos
         if (subaccount.isDemo) {
@@ -333,18 +385,17 @@ export class SubaccountsService {
         
         return balance;
       } catch (exchangeError) {
-        console.error(`❌ Error al obtener balance de ${subaccount.exchange}:`, exchangeError.message);
+        console.error(`❌ Error al obtener balance de ${subaccount.name} (${subaccount.exchange}):`, exchangeError.message);
         
         // Si el error es de restricción geográfica, intentar con el proxy
         if (exchangeError.message?.includes('ubicación geográfica') || 
             exchangeError.message?.includes('CloudFront') || 
             exchangeError.response?.status === 403) {
-          console.log('⚠️ Detectada restricción geográfica, intentando con proxy alternativo...');
+          console.log(`⚠️ Detectada restricción geográfica para ${subaccount.name}, intentando con proxy...`);
           
           try {
-            console.log(`🔄 Llamando a getExchangeBalanceViaProxy para ${id}...`);
             const balanceViaProxy = await this.getExchangeBalanceViaProxy(subaccount);
-            console.log(`✅ Balance obtenido vía proxy para subcuenta: ${id}`);
+            console.log(`✅ Balance obtenido vía proxy para ${subaccount.name}: $${balanceViaProxy.balance.toFixed(2)} USD`);
             
             // Si es una cuenta demo, marcamos los datos
             if (subaccount.isDemo) {
@@ -353,13 +404,14 @@ export class SubaccountsService {
             
             return balanceViaProxy;
           } catch (proxyError) {
-            console.error('❌ Error al intentar con proxy:', proxyError.message);
+            console.error(`❌ Error al intentar con proxy para ${subaccount.name}:`, proxyError.message);
             
             // Si es una cuenta demo y fallaron todos los intentos, generar datos simulados como último recurso
             if (subaccount.isDemo) {
-              console.log(`⚠️ Cuenta demo ${id}: Generando datos simulados como último recurso.`);
+              console.log(`⚠️ Generando datos simulados para cuenta demo: ${subaccount.name}`);
               const simulatedData = this.generateSimulatedData();
               simulatedData.isDemo = true;
+              simulatedData.isSimulated = true;
               return simulatedData;
             }
             
@@ -373,22 +425,22 @@ export class SubaccountsService {
         
         // Si es una cuenta demo y falló el intento principal, generar datos simulados como último recurso
         if (subaccount.isDemo) {
-          console.log(`⚠️ Cuenta demo ${id}: Generando datos simulados como último recurso.`);
+          console.log(`⚠️ Generando datos simulados para cuenta demo: ${subaccount.name}`);
           const simulatedData = this.generateSimulatedData();
           simulatedData.isDemo = true;
+          simulatedData.isSimulated = true;
           return simulatedData;
         }
         
         // Para cuentas reales, lanzar el error
-        console.error(`❌ Error obteniendo balance para subcuenta ${id}:`, exchangeError.message);
         throw new HttpException(
-          `No se pudo obtener el balance real de la cuenta. Por favor verifica tus credenciales de API y que la cuenta tenga permisos de lectura.`,
+          `No se pudo obtener el balance de ${subaccount.name}. Por favor verifica tus credenciales de API y que la cuenta tenga permisos de lectura.`,
           HttpStatus.BAD_REQUEST
         );
       }
     } catch (error) {
-      console.error(`❌ Error en getSubAccountBalance:`, error.message);
-        throw error;
+      console.error(`❌ Error al obtener balance:`, error.message);
+      throw error;
     }
   }
 

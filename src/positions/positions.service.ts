@@ -126,11 +126,10 @@ export class PositionsService {
     
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        this.logger.log(`🔄 Intento ${attempt}/${MAX_RETRIES} de obtener posiciones cerradas para subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
+        this.logger.log(`🔄 Obteniendo posiciones cerradas para subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
         
         // Configurar proxy
         const proxyUrl = "http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001";
-        this.logger.log(`🔹 Configurando proxy: ${proxyUrl.replace(/:[^:]*@/, ':****@')}`);
         
         const proxyAgent = new HttpsProxyAgent(proxyUrl);
 
@@ -139,11 +138,6 @@ export class PositionsService {
         const apiKey = subaccount.apiKey;
         const secretKey = subaccount.secretKey;
         const recvWindow = "5000";
-
-        this.logger.log(`🔹 Preparando autenticación:
-          - Timestamp: ${timestamp}
-          - API Key: ${apiKey.substring(0, 5)}...
-          - RecvWindow: ${recvWindow}`);
 
         // QueryString para obtener posiciones cerradas
         const queryParams = { 
@@ -158,10 +152,6 @@ export class PositionsService {
         const signPayload = `${timestamp}${apiKey}${recvWindow}${queryString || ""}`;
         const signature = crypto.createHmac('sha256', secretKey).update(signPayload).digest('hex');
 
-        this.logger.log(`🔹 Generación de firma:
-          - Sign Payload: ${signPayload}
-          - Signature: ${signature}`);
-
         // Headers actualizados para Bybit V5
         const headers = {
           'X-BAPI-API-KEY': apiKey,
@@ -170,20 +160,12 @@ export class PositionsService {
           'X-BAPI-SIGN': signature,
         };
 
-        this.logger.log('🔹 Headers configurados:', JSON.stringify(headers, null, 2));
-
         // URL de Bybit para obtener posiciones cerradas
         const baseUrl = subaccount.isDemo 
           ? "https://api-demo.bybit.com"
           : "https://api.bybit.com";
         
         const url = `${baseUrl}/v5/position/closed-pnl`;
-        
-        this.logger.log(`📡 Enviando solicitud a Bybit:
-          - URL: ${url}
-          - Modo: ${subaccount.isDemo ? 'DEMO' : 'REAL'}
-          - Método: GET
-          - Params: ${JSON.stringify(queryParams)}`);
 
         // Hacer la solicitud a Bybit con tiempo de espera
         const axiosConfig = {
@@ -193,17 +175,10 @@ export class PositionsService {
           timeout: 10000, // 10 segundos
         };
 
-        this.logger.log('📡 Configuración de axios:', JSON.stringify({
-          ...axiosConfig,
-          httpsAgent: 'ProxyAgent'
-        }, null, 2));
-
         const response = await axios.get(url, axiosConfig);
         
         // Si llegamos aquí, la solicitud fue exitosa
-        this.logger.log(`✅ Respuesta recibida de Bybit en el intento ${attempt}:
-          - Status: ${response.status}
-          - Status Text: ${response.statusText}`);
+        this.logger.log(`✅ Respuesta recibida de Bybit para posiciones cerradas`);
 
         if (!response.data || response.data.retCode !== 0) {
           const error = new Error(`Error en Bybit: ${response.data?.retMsg}`);
@@ -219,34 +194,29 @@ export class PositionsService {
           this.logger.log(`✅ No hay posiciones cerradas en los últimos 7 días para la subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
         } else {
           this.logger.log(`✅ Posiciones cerradas en los últimos 7 días para la subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'}):`);
-          closedPositions.result.list.forEach((position, index) => {
-            this.logger.log(`📊 Posición cerrada ${index + 1}:
-              - Símbolo: ${position.symbol}
-              - Lado: ${position.side}
-              - Cantidad: ${position.qty}
-              - Precio de entrada: ${position.avgEntryPrice}
-              - Precio de salida: ${position.avgExitPrice}
-              - PnL realizado: ${position.closedPnl}
-              - Apalancamiento: ${position.leverage}
-              - Fecha de cierre: ${new Date(parseInt(position.updatedTime)).toLocaleString()}
-            `);
+          
+          // Crear una tabla resumida de las posiciones cerradas
+          const positionSummary = closedPositions.result.list.map((position, index) => {
+            return {
+              index: index + 1,
+              symbol: position.symbol,
+              side: position.side,
+              pnl: position.closedPnl,
+              fecha: new Date(parseInt(position.updatedTime)).toLocaleString()
+            };
           });
+          
+          // Mostrar la tabla resumida
+          console.table(positionSummary);
         }
         
         return closedPositions;
       } catch (error) {
-        this.logger.error(`❌ Error en intento ${attempt}/${MAX_RETRIES} para obtener posiciones cerradas de subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'}):`, {
-          message: error.message,
-          bybitCode: error.bybitCode,
-          bybitMsg: error.bybitMsg,
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-          data: error.response?.data
-        });
+        this.logger.error(`❌ Error al obtener posiciones cerradas para subcuenta ${subaccount.id}:`, error.message);
 
         // Si es el último intento, devolver null
         if (attempt === MAX_RETRIES) {
-          this.logger.error(`❌ No se pudieron obtener las posiciones cerradas después de ${MAX_RETRIES} intentos para subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
+          this.logger.error(`❌ No se pudieron obtener las posiciones cerradas después de ${MAX_RETRIES} intentos`);
           return null;
         }
 
