@@ -45,11 +45,9 @@ export class AuthController {
               console.log(`🔄 Obteniendo balance para subcuenta ${subAccount.id}`);
               const balance = await this.subaccountsService.getSubAccountBalance(subAccount.id, user.id);
               
-              // Obtener posiciones abiertas para subcuentas DEMO
-              console.log(`🔄 Obteniendo posiciones abiertas para subcuenta ${subAccount.id}`);
-              if (subAccount.isDemo) {
-                await this.positionsService.getBybitOpenPositions(subAccount);
-              }
+              // Obtener posiciones abiertas para todas las subcuentas
+              console.log(`🔄 Obteniendo posiciones abiertas para subcuenta ${subAccount.id} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
+              await this.positionsService.getBybitOpenPositions(subAccount);
               
               // Combinar la subcuenta con su balance
               return {

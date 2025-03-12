@@ -15,18 +15,15 @@ export class PositionsService {
    * @returns Posiciones abiertas de la subcuenta
    */
   async getBybitOpenPositions(subaccount: SubAccount): Promise<BybitPositionResponse | null> {
-    // Solo procesamos cuentas demo por ahora
-    if (!subaccount.isDemo) {
-      this.logger.log(`Omitiendo cuenta real ${subaccount.id} - Solo procesando cuentas DEMO por ahora`);
-      return null;
-    }
-
+    // Eliminamos la restricción de solo cuentas demo
+    // Ahora procesamos tanto cuentas demo como reales
+    
     const MAX_RETRIES = 3;
     const RETRY_DELAY = 2000; // 2 segundos entre reintentos
     
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        this.logger.log(`🔄 Intento ${attempt}/${MAX_RETRIES} de obtener posiciones para subcuenta ${subaccount.id}`);
+        this.logger.log(`🔄 Intento ${attempt}/${MAX_RETRIES} de obtener posiciones para subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
         
         // Configurar proxy
         const proxyUrl = "http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001";
@@ -114,9 +111,9 @@ export class PositionsService {
         const positions = response.data as BybitPositionResponse;
         
         if (positions.result.list.length === 0) {
-          this.logger.log(`✅ No hay posiciones abiertas para la subcuenta ${subaccount.id}`);
+          this.logger.log(`✅ No hay posiciones abiertas para la subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
         } else {
-          this.logger.log(`✅ Posiciones abiertas para la subcuenta ${subaccount.id}:`);
+          this.logger.log(`✅ Posiciones abiertas para la subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'}):`);
           positions.result.list.forEach((position, index) => {
             this.logger.log(`📊 Posición ${index + 1}:
               - Símbolo: ${position.symbol}
@@ -131,7 +128,7 @@ export class PositionsService {
         
         return positions;
       } catch (error) {
-        this.logger.error(`❌ Error en intento ${attempt}/${MAX_RETRIES}:`, {
+        this.logger.error(`❌ Error en intento ${attempt}/${MAX_RETRIES} para subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'}):`, {
           message: error.message,
           bybitCode: error.bybitCode,
           bybitMsg: error.bybitMsg,
@@ -142,7 +139,7 @@ export class PositionsService {
 
         // Si es el último intento, devolver null
         if (attempt === MAX_RETRIES) {
-          this.logger.error(`❌ No se pudieron obtener las posiciones después de ${MAX_RETRIES} intentos`);
+          this.logger.error(`❌ No se pudieron obtener las posiciones después de ${MAX_RETRIES} intentos para subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
           return null;
         }
 
