@@ -515,7 +515,7 @@ export class SubaccountsService {
           }
           
           // Obtener las operaciones spot
-          this.logger.log(`🔄 Obteniendo operaciones SPOT de los últimos 90 días (3 meses) para la nueva subcuenta de Bybit (${isDemo ? 'DEMO' : 'REAL'})...`);
+          this.logger.log(`🔄 Obteniendo operaciones SPOT de los últimos 90 días (3 meses) en intervalos de 7 días para la nueva subcuenta de Bybit (${isDemo ? 'DEMO' : 'REAL'})...`);
           const spotExecutions = await this.positionsService.getBybitSpotExecutions(subaccount);
           
           if (spotExecutions) {

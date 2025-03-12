@@ -71,7 +71,7 @@ export class AuthController {
               }
               
               // Obtener operaciones spot de los últimos 90 días (3 meses)
-              console.log(`📊 Obteniendo operaciones SPOT de los últimos 90 días (3 meses) para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})...`);
+              console.log(`📊 Obteniendo operaciones SPOT de los últimos 90 días (3 meses) en intervalos de 7 días para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})...`);
               
               // Obtener operaciones spot para todas las cuentas (demo y reales)
               const spotExecutions = await this.positionsService.getBybitSpotExecutions(subAccount);

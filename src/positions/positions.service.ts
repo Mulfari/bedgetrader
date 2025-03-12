@@ -384,16 +384,16 @@ export class PositionsService {
       - Exchange: ${subaccount.exchange}
       - Tipo: ${subaccount.isDemo ? 'DEMO' : 'REAL'}
       - API Key: ${subaccount.apiKey ? subaccount.apiKey.substring(0, 5) + '...' : 'No disponible'}
-      - Periodo: Últimos 90 días (3 meses) (desde ${startTime.toLocaleString()})
+      - Periodo: Últimos 90 días (3 meses) en intervalos de 7 días (desde ${startTime.toLocaleString()})
     `);
     
-    // Dividir el rango de tiempo en intervalos de 15 días
+    // Dividir el rango de tiempo en intervalos de 7 días (máximo permitido por Bybit)
     const intervals = [];
     let currentStart = new Date(startTime);
     
     while (currentStart < endTime) {
       const currentEnd = new Date(currentStart);
-      currentEnd.setDate(currentEnd.getDate() + 15); // Intervalo de 15 días
+      currentEnd.setDate(currentEnd.getDate() + 7); // Intervalo de 7 días (máximo permitido por Bybit)
       
       // Si el final del intervalo es posterior a la fecha actual, usar la fecha actual
       const actualEnd = currentEnd > endTime ? endTime : currentEnd;
@@ -407,7 +407,7 @@ export class PositionsService {
       currentStart = new Date(actualEnd);
     }
     
-    this.logger.log(`🔄 Dividiendo la consulta en ${intervals.length} intervalos de 15 días`);
+    this.logger.log(`🔄 Dividiendo la consulta en ${intervals.length} intervalos de 7 días (máximo permitido por Bybit)`);
     
     // Resultado combinado de todas las consultas
     const combinedResult: BybitExecutionResponse = {
@@ -597,12 +597,20 @@ export class PositionsService {
       this.logger.log(`🔄 Intentando con el endpoint de ejecuciones como último recurso...`);
       
       try {
+        // Calcular un período de 7 días para el fallback (máximo permitido por Bybit)
+        const fallbackEndTime = new Date();
+        const fallbackStartTime = new Date(fallbackEndTime);
+        fallbackStartTime.setDate(fallbackStartTime.getDate() - 7);
+        
         // Configurar parámetros para el endpoint de ejecuciones
         const execParams = { 
           category: "spot",
-          startTime: startTime.getTime().toString(),
+          startTime: fallbackStartTime.getTime().toString(),
+          endTime: fallbackEndTime.getTime().toString(),
           limit: "100"
         };
+        
+        this.logger.log(`📝 Parámetros de fallback: startTime=${new Date(parseInt(execParams.startTime)).toLocaleString()}, endTime=${new Date(parseInt(execParams.endTime)).toLocaleString()}`);
         
         // URL para el endpoint de ejecuciones
         const baseUrl = subaccount.isDemo 
