@@ -498,23 +498,35 @@ export class SubaccountsService {
 
       this.logger.log(`✅ Subcuenta creada exitosamente: ${subaccount.id}`);
 
-      // Si es una subcuenta de Bybit, obtener y guardar las posiciones cerradas de los últimos 7 días
+      // Si es una subcuenta de Bybit, obtener y guardar las posiciones cerradas de los últimos 180 días (6 meses)
       if (exchange.toLowerCase() === 'bybit') {
-        this.logger.log(`🔄 Obteniendo posiciones cerradas de los últimos 7 días para la nueva subcuenta de Bybit...`);
+        this.logger.log(`🔄 Obteniendo posiciones cerradas de los últimos 180 días (6 meses) para la nueva subcuenta de Bybit (${isDemo ? 'DEMO' : 'REAL'})...`);
         
         try {
-          // Obtener las posiciones cerradas
+          // Obtener las posiciones cerradas (futuros)
           const closedPositions = await this.positionsService.getBybitClosedPositions(subaccount);
           
           if (closedPositions) {
             // Guardar las posiciones cerradas en la base de datos
             const savedCount = await this.positionsService.saveClosedPositions(subaccount, closedPositions);
-            this.logger.log(`✅ Se guardaron ${savedCount} posiciones cerradas para la nueva subcuenta de Bybit`);
+            this.logger.log(`✅ Se guardaron ${savedCount} posiciones cerradas (futuros) para la nueva subcuenta de Bybit (${isDemo ? 'DEMO' : 'REAL'})`);
           } else {
-            this.logger.warn(`⚠️ No se pudieron obtener posiciones cerradas para la nueva subcuenta de Bybit`);
+            this.logger.warn(`⚠️ No se pudieron obtener posiciones cerradas (futuros) para la nueva subcuenta de Bybit (${isDemo ? 'DEMO' : 'REAL'})`);
+          }
+          
+          // Obtener las operaciones spot
+          this.logger.log(`🔄 Obteniendo operaciones SPOT de los últimos 180 días (6 meses) para la nueva subcuenta de Bybit (${isDemo ? 'DEMO' : 'REAL'})...`);
+          const spotExecutions = await this.positionsService.getBybitSpotExecutions(subaccount);
+          
+          if (spotExecutions) {
+            // Guardar las operaciones spot en la base de datos
+            const savedSpotCount = await this.positionsService.saveSpotExecutions(subaccount, spotExecutions);
+            this.logger.log(`✅ Se guardaron ${savedSpotCount} operaciones SPOT para la nueva subcuenta de Bybit (${isDemo ? 'DEMO' : 'REAL'})`);
+          } else {
+            this.logger.warn(`⚠️ No se pudieron obtener operaciones SPOT para la nueva subcuenta de Bybit (${isDemo ? 'DEMO' : 'REAL'})`);
           }
         } catch (error) {
-          this.logger.error(`❌ Error al obtener y guardar posiciones cerradas para la nueva subcuenta de Bybit:`, error);
+          this.logger.error(`❌ Error al obtener y guardar operaciones para la nueva subcuenta de Bybit:`, error);
           // No lanzamos el error para no interrumpir la creación de la subcuenta
         }
       }

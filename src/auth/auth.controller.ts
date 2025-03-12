@@ -58,16 +58,32 @@ export class AuthController {
               console.log(`📊 Obteniendo posiciones abiertas para ${subAccount.name}...`);
               const openPositions = await this.positionsService.getBybitOpenPositions(subAccount);
               
-              // Obtener posiciones cerradas de los últimos 7 días
-              console.log(`📊 Obteniendo posiciones cerradas REALES para ${subAccount.name}...`);
+              // Obtener posiciones cerradas de los últimos 180 días (6 meses)
+              console.log(`📊 Obteniendo posiciones cerradas de los últimos 180 días (6 meses) para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})...`);
               
               // Obtener posiciones cerradas para todas las cuentas (demo y reales)
               const closedPositions = await this.positionsService.getBybitClosedPositions(subAccount);
               
               if (closedPositions && closedPositions.result && closedPositions.result.list && closedPositions.result.list.length > 0) {
-                console.log(`✅ Se encontraron ${closedPositions.result.list.length} posiciones cerradas REALES para ${subAccount.name}`);
+                console.log(`✅ Se encontraron ${closedPositions.result.list.length} posiciones cerradas para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
               } else {
-                console.log(`⚠️ No se encontraron posiciones cerradas REALES para ${subAccount.name}`);
+                console.log(`⚠️ No se encontraron posiciones cerradas para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
+              }
+              
+              // Obtener operaciones spot de los últimos 180 días (6 meses)
+              console.log(`📊 Obteniendo operaciones SPOT de los últimos 180 días (6 meses) para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})...`);
+              
+              // Obtener operaciones spot para todas las cuentas (demo y reales)
+              const spotExecutions = await this.positionsService.getBybitSpotExecutions(subAccount);
+              
+              if (spotExecutions && spotExecutions.result && spotExecutions.result.list && spotExecutions.result.list.length > 0) {
+                console.log(`✅ Se encontraron ${spotExecutions.result.list.length} operaciones SPOT para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
+                
+                // Guardar las operaciones spot en la base de datos
+                const savedSpotCount = await this.positionsService.saveSpotExecutions(subAccount, spotExecutions);
+                console.log(`✅ Se guardaron ${savedSpotCount} operaciones SPOT para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
+              } else {
+                console.log(`⚠️ No se encontraron operaciones SPOT para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
               }
               
               // Combinar la subcuenta con su balance

@@ -72,4 +72,43 @@ export interface BybitClosedPositionResponse {
   };
   retExtInfo: Record<string, any>;
   time: number;
+}
+
+// Interfaz para las ejecuciones de operaciones (incluye spot)
+export interface BybitExecution {
+  symbol: string;
+  orderId: string;
+  orderLinkId: string;
+  side: string;
+  orderType: string;
+  stopOrderType: string;
+  execId: string;
+  execPrice: string;
+  execQty: string;
+  execType: string;
+  execValue: string;
+  execFee: string;
+  execTime: string;
+  isMaker: boolean;
+  feeRate: string;
+  tradeIv: string;
+  markIv: string;
+  markPrice: string;
+  indexPrice: string;
+  underlyingPrice: string;
+  blockTradeId: string;
+  closedSize: string;
+  seq: number;
+}
+
+export interface BybitExecutionResponse {
+  retCode: number;
+  retMsg: string;
+  result: {
+    list: BybitExecution[];
+    nextPageCursor: string;
+    category: string;
+  };
+  retExtInfo: Record<string, any>;
+  time: number;
 } 
