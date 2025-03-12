@@ -372,10 +372,10 @@ export class PositionsService {
     const MAX_RETRIES = 3;
     const RETRY_DELAY = 2000; // 2 segundos entre reintentos
     
-    // Calcular fecha de inicio (180 días atrás - 6 meses)
+    // Modificamos para obtener solo 90 días (3 meses) en lugar de 180
+    const endTime = new Date();
     const startTime = new Date();
-    startTime.setDate(startTime.getDate() - 180);
-    const startTimeMs = startTime.getTime();
+    startTime.setDate(startTime.getDate() - 90); // 90 días (3 meses)
     
     // Mostrar información detallada sobre la subcuenta
     this.logger.log(`🔍 Obteniendo operaciones SPOT para subcuenta:
@@ -384,230 +384,284 @@ export class PositionsService {
       - Exchange: ${subaccount.exchange}
       - Tipo: ${subaccount.isDemo ? 'DEMO' : 'REAL'}
       - API Key: ${subaccount.apiKey ? subaccount.apiKey.substring(0, 5) + '...' : 'No disponible'}
-      - Periodo: Últimos 180 días (6 meses) (desde ${startTime.toLocaleString()})
+      - Periodo: Últimos 90 días (3 meses) (desde ${startTime.toLocaleString()})
     `);
     
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        this.logger.log(`🔄 Intento ${attempt}/${MAX_RETRIES} de obtener operaciones SPOT para cuenta ${subaccount.isDemo ? 'DEMO' : 'REAL'}`);
-        
-        // Configurar proxy
-        const proxyUrl = "http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001";
-        
-        const proxyAgent = new HttpsProxyAgent(proxyUrl);
+    // Dividir el rango de tiempo en intervalos de 15 días
+    const intervals = [];
+    let currentStart = new Date(startTime);
+    
+    while (currentStart < endTime) {
+      const currentEnd = new Date(currentStart);
+      currentEnd.setDate(currentEnd.getDate() + 15); // Intervalo de 15 días
+      
+      // Si el final del intervalo es posterior a la fecha actual, usar la fecha actual
+      const actualEnd = currentEnd > endTime ? endTime : currentEnd;
+      
+      intervals.push({
+        start: new Date(currentStart),
+        end: new Date(actualEnd)
+      });
+      
+      // Avanzar al siguiente intervalo
+      currentStart = new Date(actualEnd);
+    }
+    
+    this.logger.log(`🔄 Dividiendo la consulta en ${intervals.length} intervalos de 15 días`);
+    
+    // Resultado combinado de todas las consultas
+    const combinedResult: BybitExecutionResponse = {
+      retCode: 0,
+      retMsg: "OK",
+      result: {
+        list: [],
+        nextPageCursor: "",
+        category: "spot"
+      },
+      retExtInfo: {},
+      time: Date.now()
+    };
+    
+    // Procesar cada intervalo
+    for (let i = 0; i < intervals.length; i++) {
+      const interval = intervals[i];
+      const intervalStartMs = interval.start.getTime();
+      const intervalEndMs = interval.end.getTime();
+      
+      this.logger.log(`🔄 Procesando intervalo ${i+1}/${intervals.length}: ${interval.start.toLocaleString()} - ${interval.end.toLocaleString()}`);
+      
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          this.logger.log(`🔄 Intento ${attempt}/${MAX_RETRIES} de obtener operaciones SPOT para cuenta ${subaccount.isDemo ? 'DEMO' : 'REAL'} (intervalo ${i+1}/${intervals.length})`);
+          
+          // Configurar proxy
+          const proxyUrl = "http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001";
+          
+          const proxyAgent = new HttpsProxyAgent(proxyUrl);
 
+          // Parámetros de autenticación
+          const timestamp = Date.now().toString();
+          const apiKey = subaccount.apiKey;
+          const secretKey = subaccount.secretKey;
+          const recvWindow = "5000";
+
+          // QueryString para obtener operaciones spot
+          const queryParams = { 
+            category: "spot",
+            limit: "100", // Límite razonable para cada intervalo
+            startTime: intervalStartMs.toString(),
+            endTime: intervalEndMs.toString(),
+            cursor: "" // Inicialmente sin cursor
+          };
+          
+          const queryString = new URLSearchParams(queryParams).toString();
+
+          // Crear el string para firmar
+          const signPayload = `${timestamp}${apiKey}${recvWindow}${queryString || ""}`;
+          const signature = crypto.createHmac('sha256', secretKey).update(signPayload).digest('hex');
+
+          // Headers actualizados para Bybit V5
+          const headers = {
+            'X-BAPI-API-KEY': apiKey,
+            'X-BAPI-TIMESTAMP': timestamp,
+            'X-BAPI-RECV-WINDOW': recvWindow,
+            'X-BAPI-SIGN': signature,
+          };
+
+          // URL de Bybit para obtener operaciones spot
+          const baseUrl = subaccount.isDemo 
+            ? "https://api-demo.bybit.com"
+            : "https://api.bybit.com";
+          
+          // Probamos con el endpoint de historial de órdenes
+          const url = `${baseUrl}/v5/order/history`;
+          
+          this.logger.log(`📡 Enviando solicitud a ${url} para obtener operaciones SPOT (cuenta ${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
+          this.logger.log(`📝 Parámetros de consulta: startTime=${new Date(parseInt(queryParams.startTime)).toLocaleString()}, endTime=${new Date(parseInt(queryParams.endTime)).toLocaleString()}, limit=${queryParams.limit}`);
+
+          // Hacer la solicitud a Bybit con tiempo de espera
+          const axiosConfig = {
+            headers,
+            params: queryParams,
+            httpsAgent: proxyAgent,
+            timeout: 15000, // 15 segundos
+          };
+
+          const response = await axios.get(url, axiosConfig);
+          
+          // Si llegamos aquí, la solicitud fue exitosa
+          this.logger.log(`✅ Respuesta recibida de Bybit (código: ${response.status}) para operaciones SPOT (intervalo ${i+1}/${intervals.length})`);
+
+          // Verificar si la respuesta es válida
+          if (!response.data) {
+            throw new Error('Respuesta vacía de Bybit');
+          }
+          
+          // Verificar si hay un error en la respuesta
+          if (response.data.retCode !== 0) {
+            const error = new Error(`Error en Bybit: ${response.data?.retMsg}`);
+            error['bybitCode'] = response.data?.retCode;
+            error['bybitMsg'] = response.data?.retMsg;
+            throw error;
+          }
+
+          // Procesar las órdenes spot
+          const spotOrders = response.data;
+          
+          // Verificar si hay órdenes
+          if (!spotOrders.result || !spotOrders.result.list || spotOrders.result.list.length === 0) {
+            this.logger.log(`ℹ️ No se encontraron órdenes SPOT para el intervalo ${i+1}/${intervals.length}`);
+            break; // Pasar al siguiente intervalo
+          }
+          
+          // Si llegamos aquí, tenemos órdenes del endpoint de historial
+          this.logger.log(`✅ Se encontraron ${spotOrders.result.list.length} órdenes SPOT para el intervalo ${i+1}/${intervals.length}`);
+          
+          // Convertir las órdenes al formato de ejecuciones para mantener compatibilidad
+          const convertedOrders = spotOrders.result.list.map(order => {
+            // Convertir cada orden a formato de ejecución
+            return {
+              symbol: order.symbol,
+              orderId: order.orderId,
+              orderLinkId: order.orderLinkId || '',
+              side: order.side,
+              orderType: order.orderType,
+              stopOrderType: order.stopOrderType || '',
+              execId: order.orderId, // Usar orderId como execId
+              execPrice: order.avgPrice || order.price,
+              execQty: order.qty,
+              execType: order.orderStatus,
+              execValue: (parseFloat(order.avgPrice || order.price) * parseFloat(order.qty)).toString(),
+              execFee: order.cumExecFee || '0',
+              execTime: order.updateTime || order.createTime,
+              isMaker: false, // No podemos saber esto desde la orden
+              feeRate: '0',
+              tradeIv: '',
+              markIv: '',
+              markPrice: order.avgPrice || order.price,
+              indexPrice: '',
+              underlyingPrice: '',
+              blockTradeId: '',
+              closedSize: order.qty,
+              seq: 0
+            } as BybitExecution;
+          });
+          
+          // Añadir las órdenes convertidas al resultado combinado
+          combinedResult.result.list = [...combinedResult.result.list, ...convertedOrders];
+          
+          // Crear una tabla resumida de las órdenes de este intervalo
+          const orderSummary = spotOrders.result.list.map((order, index) => {
+            return {
+              index: index + 1,
+              symbol: order.symbol,
+              side: order.side,
+              qty: order.qty,
+              price: order.avgPrice || order.price,
+              status: order.orderStatus,
+              fecha: new Date(parseInt(order.updateTime || order.createTime)).toLocaleString()
+            };
+          });
+          
+          // Mostrar la tabla resumida
+          console.table(orderSummary);
+          
+          // Pasar al siguiente intervalo
+          break;
+        } catch (error) {
+          this.logger.error(`❌ Error al obtener operaciones SPOT para intervalo ${i+1}/${intervals.length}:`, error);
+          this.logger.error(`Detalles del error:`, {
+            message: error.message,
+            stack: error.stack,
+            response: error.response?.data
+          });
+
+          // Si es el último intento, continuar con el siguiente intervalo
+          if (attempt === MAX_RETRIES) {
+            this.logger.error(`❌ No se pudieron obtener las operaciones SPOT para el intervalo ${i+1}/${intervals.length} después de ${MAX_RETRIES} intentos`);
+            break; // Pasar al siguiente intervalo
+          }
+
+          // Esperar antes del siguiente intento
+          this.logger.log(`⏳ Esperando ${RETRY_DELAY/1000} segundos antes del siguiente intento...`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        }
+      }
+    }
+    
+    // Verificar si se encontraron operaciones en alguno de los intervalos
+    if (combinedResult.result.list.length === 0) {
+      this.logger.log(`⚠️ No se encontraron operaciones SPOT en ninguno de los intervalos para la subcuenta ${subaccount.name} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
+      
+      // Intentar con el endpoint de ejecuciones como último recurso
+      this.logger.log(`🔄 Intentando con el endpoint de ejecuciones como último recurso...`);
+      
+      try {
+        // Configurar parámetros para el endpoint de ejecuciones
+        const execParams = { 
+          category: "spot",
+          startTime: startTime.getTime().toString(),
+          limit: "100"
+        };
+        
+        // URL para el endpoint de ejecuciones
+        const baseUrl = subaccount.isDemo 
+          ? "https://api-demo.bybit.com"
+          : "https://api.bybit.com";
+        const execUrl = `${baseUrl}/v5/execution/list`;
+        
+        this.logger.log(`📡 Enviando solicitud a ${execUrl} para obtener ejecuciones SPOT (cuenta ${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
+        
         // Parámetros de autenticación
         const timestamp = Date.now().toString();
         const apiKey = subaccount.apiKey;
         const secretKey = subaccount.secretKey;
         const recvWindow = "5000";
-
-        // QueryString para obtener operaciones spot
-        // Aumentamos el límite y no especificamos startTime para obtener todas las operaciones disponibles
-        const queryParams = { 
-          category: "spot",
-          limit: "200", // Aumentamos el límite para obtener más resultados
-          cursor: "" // Inicialmente sin cursor
-        };
         
-        // Opcional: Añadir startTime si queremos limitar por fecha
-        // queryParams.startTime = startTimeMs.toString();
+        // Actualizar firma para la nueva solicitud
+        const newQueryString = new URLSearchParams(execParams).toString();
+        const newSignPayload = `${timestamp}${apiKey}${recvWindow}${newQueryString || ""}`;
+        const newSignature = crypto.createHmac('sha256', secretKey).update(newSignPayload).digest('hex');
         
-        const queryString = new URLSearchParams(queryParams).toString();
-
-        // Crear el string para firmar
-        const signPayload = `${timestamp}${apiKey}${recvWindow}${queryString || ""}`;
-        const signature = crypto.createHmac('sha256', secretKey).update(signPayload).digest('hex');
-
-        // Headers actualizados para Bybit V5
-        const headers = {
+        // Actualizar headers
+        const newHeaders = {
           'X-BAPI-API-KEY': apiKey,
           'X-BAPI-TIMESTAMP': timestamp,
           'X-BAPI-RECV-WINDOW': recvWindow,
-          'X-BAPI-SIGN': signature,
+          'X-BAPI-SIGN': newSignature,
         };
-
-        // URL de Bybit para obtener operaciones spot
-        const baseUrl = subaccount.isDemo 
-          ? "https://api-demo.bybit.com"
-          : "https://api.bybit.com";
         
-        // Probamos con el endpoint de historial de órdenes en lugar del de ejecuciones
-        // const url = `${baseUrl}/v5/execution/list`;
-        const url = `${baseUrl}/v5/order/history`;
-        
-        this.logger.log(`📡 Enviando solicitud a ${url} para obtener operaciones SPOT (cuenta ${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
-        this.logger.log(`📝 Parámetros de consulta: limit=${queryParams.limit}, category=${queryParams.category}`);
-
-        // Hacer la solicitud a Bybit con tiempo de espera
-        const axiosConfig = {
-          headers,
-          params: queryParams,
-          httpsAgent: proxyAgent,
-          timeout: 15000, // Aumentamos el timeout a 15 segundos
+        // Configurar nueva solicitud
+        const newAxiosConfig = {
+          headers: newHeaders,
+          params: execParams,
+          httpsAgent: new HttpsProxyAgent("http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001"),
+          timeout: 15000,
         };
-
-        const response = await axios.get(url, axiosConfig);
         
-        // Si llegamos aquí, la solicitud fue exitosa
-        this.logger.log(`✅ Respuesta recibida de Bybit (código: ${response.status}) para operaciones SPOT (cuenta ${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
-
-        // Mostrar la respuesta completa para depuración
-        this.logger.log(`📊 Respuesta completa de Bybit: ${JSON.stringify(response.data)}`);
-
+        // Hacer la solicitud al endpoint de ejecuciones
+        const execResponse = await axios.get(execUrl, newAxiosConfig);
+        
+        this.logger.log(`✅ Respuesta recibida del endpoint de ejecuciones (código: ${execResponse.status})`);
+        
         // Verificar si la respuesta es válida
-        if (!response.data) {
-          throw new Error('Respuesta vacía de Bybit');
-        }
-        
-        // Verificar si hay un error en la respuesta
-        if (response.data.retCode !== 0) {
-          const error = new Error(`Error en Bybit: ${response.data?.retMsg}`);
-          error['bybitCode'] = response.data?.retCode;
-          error['bybitMsg'] = response.data?.retMsg;
-          throw error;
-        }
-
-        // Procesar las órdenes spot
-        const spotOrders = response.data;
-        
-        // Verificar si hay órdenes
-        if (!spotOrders.result || !spotOrders.result.list || spotOrders.result.list.length === 0) {
-          this.logger.log(`⚠️ No se encontraron órdenes SPOT para la subcuenta ${subaccount.name} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
-          
-          // Si no hay órdenes, intentar con el endpoint original de ejecuciones
-          this.logger.log(`🔄 Intentando con el endpoint de ejecuciones como alternativa...`);
-          
-          // Configurar parámetros para el endpoint de ejecuciones
-          const execParams = { 
-            ...queryParams,
-            startTime: startTimeMs.toString()
-          };
-          
-          // URL para el endpoint de ejecuciones
-          const execUrl = `${baseUrl}/v5/execution/list`;
-          
-          this.logger.log(`📡 Enviando solicitud a ${execUrl} para obtener ejecuciones SPOT (cuenta ${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
-          
-          // Actualizar firma para la nueva solicitud
-          const newTimestamp = Date.now().toString();
-          const newQueryString = new URLSearchParams(execParams).toString();
-          const newSignPayload = `${newTimestamp}${apiKey}${recvWindow}${newQueryString || ""}`;
-          const newSignature = crypto.createHmac('sha256', secretKey).update(newSignPayload).digest('hex');
-          
-          // Actualizar headers
-          const newHeaders = {
-            'X-BAPI-API-KEY': apiKey,
-            'X-BAPI-TIMESTAMP': newTimestamp,
-            'X-BAPI-RECV-WINDOW': recvWindow,
-            'X-BAPI-SIGN': newSignature,
-          };
-          
-          // Configurar nueva solicitud
-          const newAxiosConfig = {
-            headers: newHeaders,
-            params: execParams,
-            httpsAgent: proxyAgent,
-            timeout: 15000,
-          };
-          
-          // Hacer la solicitud al endpoint de ejecuciones
-          const execResponse = await axios.get(execUrl, newAxiosConfig);
-          
-          this.logger.log(`✅ Respuesta recibida del endpoint de ejecuciones (código: ${execResponse.status})`);
-          this.logger.log(`📊 Respuesta completa del endpoint de ejecuciones: ${JSON.stringify(execResponse.data)}`);
-          
-          // Verificar si la respuesta es válida
-          if (!execResponse.data || execResponse.data.retCode !== 0) {
-            this.logger.log(`⚠️ No se encontraron operaciones SPOT en ninguno de los endpoints para la subcuenta ${subaccount.name}`);
-            return null;
-          }
-          
-          // Usar la respuesta del endpoint de ejecuciones
-          return execResponse.data as BybitExecutionResponse;
-        }
-        
-        // Si llegamos aquí, tenemos órdenes del endpoint de historial
-        this.logger.log(`✅ Se encontraron ${spotOrders.result.list.length} órdenes SPOT para la subcuenta ${subaccount.name} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
-        
-        // Convertir las órdenes al formato de ejecuciones para mantener compatibilidad
-        const convertedResponse: BybitExecutionResponse = {
-          retCode: spotOrders.retCode,
-          retMsg: spotOrders.retMsg,
-          result: {
-            list: spotOrders.result.list.map(order => {
-              // Convertir cada orden a formato de ejecución
-              return {
-                symbol: order.symbol,
-                orderId: order.orderId,
-                orderLinkId: order.orderLinkId || '',
-                side: order.side,
-                orderType: order.orderType,
-                stopOrderType: order.stopOrderType || '',
-                execId: order.orderId, // Usar orderId como execId
-                execPrice: order.avgPrice || order.price,
-                execQty: order.qty,
-                execType: order.orderStatus,
-                execValue: (parseFloat(order.avgPrice || order.price) * parseFloat(order.qty)).toString(),
-                execFee: order.cumExecFee || '0',
-                execTime: order.updateTime || order.createTime,
-                isMaker: false, // No podemos saber esto desde la orden
-                feeRate: '0',
-                tradeIv: '',
-                markIv: '',
-                markPrice: order.avgPrice || order.price,
-                indexPrice: '',
-                underlyingPrice: '',
-                blockTradeId: '',
-                closedSize: order.qty,
-                seq: 0
-              } as BybitExecution;
-            }),
-            nextPageCursor: spotOrders.result.nextPageCursor,
-            category: 'spot'
-          },
-          retExtInfo: spotOrders.retExtInfo || {},
-          time: spotOrders.time
-        };
-        
-        // Crear una tabla resumida de las órdenes
-        const orderSummary = spotOrders.result.list.map((order, index) => {
-          return {
-            index: index + 1,
-            symbol: order.symbol,
-            side: order.side,
-            qty: order.qty,
-            price: order.avgPrice || order.price,
-            status: order.orderStatus,
-            fecha: new Date(parseInt(order.updateTime || order.createTime)).toLocaleString()
-          };
-        });
-        
-        // Mostrar la tabla resumida
-        console.table(orderSummary);
-        
-        return convertedResponse;
-      } catch (error) {
-        this.logger.error(`❌ Error al obtener operaciones SPOT:`, error);
-        this.logger.error(`Detalles del error:`, {
-          message: error.message,
-          stack: error.stack,
-          response: error.response?.data
-        });
-
-        // Si es el último intento, devolver null
-        if (attempt === MAX_RETRIES) {
-          this.logger.error(`❌ No se pudieron obtener las operaciones SPOT después de ${MAX_RETRIES} intentos`);
+        if (!execResponse.data || execResponse.data.retCode !== 0) {
+          this.logger.log(`⚠️ No se encontraron operaciones SPOT en ninguno de los endpoints para la subcuenta ${subaccount.name}`);
           return null;
         }
-
-        // Esperar antes del siguiente intento
-        this.logger.log(`⏳ Esperando ${RETRY_DELAY/1000} segundos antes del siguiente intento...`);
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        
+        // Usar la respuesta del endpoint de ejecuciones
+        return execResponse.data as BybitExecutionResponse;
+      } catch (error) {
+        this.logger.error(`❌ Error al intentar con el endpoint de ejecuciones:`, error);
+        return null;
       }
     }
     
-    return null;
+    // Si llegamos aquí, tenemos operaciones de al menos uno de los intervalos
+    this.logger.log(`✅ Se encontraron un total de ${combinedResult.result.list.length} operaciones SPOT en todos los intervalos`);
+    
+    return combinedResult;
   }
 
   /**
@@ -625,29 +679,39 @@ export class PositionsService {
     this.logger.log(`🔄 Guardando ${spotExecutions.result.list.length} operaciones SPOT en la base de datos...`);
     
     let savedCount = 0;
+    let duplicateCount = 0;
+    let errorCount = 0;
     
     try {
       // Procesar cada operación spot
       for (const execution of spotExecutions.result.list) {
         try {
           // Verificar si la operación ya existe en la base de datos
+          const execTime = new Date(parseInt(execution.execTime));
+          
           const existingPosition = await this.prisma.position.findFirst({
             where: {
               subAccountId: subaccount.id,
               symbol: execution.symbol,
               externalId: execution.orderId,
-              openedAt: new Date(parseInt(execution.execTime)),
-              closedAt: new Date(parseInt(execution.execTime))
+              openedAt: execTime,
+              closedAt: execTime
             }
           });
 
           if (existingPosition) {
             this.logger.log(`⏩ Operación SPOT ya existe en la base de datos: ${execution.symbol} (${execution.orderId})`);
+            duplicateCount++;
             continue;
           }
 
           // Para operaciones spot, la fecha de apertura y cierre es la misma
-          const execTime = new Date(parseInt(execution.execTime));
+          // Verificar que execTime sea una fecha válida
+          if (isNaN(execTime.getTime())) {
+            this.logger.error(`❌ Fecha inválida para operación SPOT ${execution.symbol} (${execution.orderId}): ${execution.execTime}`);
+            errorCount++;
+            continue;
+          }
           
           // Crear la operación en la base de datos
           await this.prisma.position.create({
@@ -683,13 +747,20 @@ export class PositionsService {
           this.logger.log(`✅ Operación SPOT guardada: ${execution.symbol} (${execution.side}) - Valor: ${execution.execValue}`);
         } catch (error) {
           this.logger.error(`❌ Error al guardar operación SPOT ${execution.symbol}:`, error);
+          errorCount++;
         }
       }
 
-      this.logger.log(`✅ Se guardaron ${savedCount} operaciones SPOT en la base de datos`);
+      this.logger.log(`📊 Resumen de guardado de operaciones SPOT:
+        - Total procesadas: ${spotExecutions.result.list.length}
+        - Guardadas exitosamente: ${savedCount}
+        - Duplicadas (ya existentes): ${duplicateCount}
+        - Errores: ${errorCount}
+      `);
+      
       return savedCount;
     } catch (error) {
-      this.logger.error(`❌ Error al guardar operaciones SPOT:`, error);
+      this.logger.error(`❌ Error general al guardar operaciones SPOT:`, error);
       return savedCount;
     }
   }

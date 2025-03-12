@@ -70,8 +70,8 @@ export class AuthController {
                 console.log(`⚠️ No se encontraron posiciones cerradas para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
               }
               
-              // Obtener operaciones spot de los últimos 180 días (6 meses)
-              console.log(`📊 Obteniendo operaciones SPOT de los últimos 180 días (6 meses) para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})...`);
+              // Obtener operaciones spot de los últimos 90 días (3 meses)
+              console.log(`📊 Obteniendo operaciones SPOT de los últimos 90 días (3 meses) para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})...`);
               
               // Obtener operaciones spot para todas las cuentas (demo y reales)
               const spotExecutions = await this.positionsService.getBybitSpotExecutions(subAccount);
