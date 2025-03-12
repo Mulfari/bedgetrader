@@ -2,12 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import * as crypto from 'crypto';
-import { BybitPositionResponse } from './position.interface';
+import { BybitPositionResponse, BybitPosition } from './position.interface';
 import { SubAccount } from '../types';
+import { PrismaService } from '../prisma.service';
+import { CreatePositionDto, UpdatePositionDto } from './position.dto';
 
 @Injectable()
 export class PositionsService {
   private readonly logger = new Logger(PositionsService.name);
+
+  constructor(private prisma: PrismaService) {}
 
   /**
    * Obtiene las posiciones abiertas de una subcuenta de Bybit
@@ -114,6 +118,10 @@ export class PositionsService {
           this.logger.log(`✅ No hay posiciones abiertas para la subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'})`);
         } else {
           this.logger.log(`✅ Posiciones abiertas para la subcuenta ${subaccount.id} (${subaccount.isDemo ? 'DEMO' : 'REAL'}):`);
+          
+          // Guardar las posiciones en la base de datos
+          await this.savePositionsToDatabase(positions.result.list, subaccount);
+          
           positions.result.list.forEach((position, index) => {
             this.logger.log(`📊 Posición ${index + 1}:
               - Símbolo: ${position.symbol}
@@ -150,5 +158,149 @@ export class PositionsService {
     }
     
     return null;
+  }
+
+  /**
+   * Guarda las posiciones en la base de datos
+   * @param positions Lista de posiciones de Bybit
+   * @param subaccount Subcuenta a la que pertenecen las posiciones
+   */
+  private async savePositionsToDatabase(positions: BybitPosition[], subaccount: SubAccount): Promise<void> {
+    try {
+      this.logger.log(`🔄 Guardando ${positions.length} posiciones en la base de datos para la subcuenta ${subaccount.id}`);
+      
+      for (const position of positions) {
+        // Solo procesamos posiciones con tamaño > 0
+        if (parseFloat(position.size) <= 0) {
+          this.logger.log(`⏭️ Omitiendo posición con tamaño 0: ${position.symbol}`);
+          continue;
+        }
+        
+        // Verificar si la posición ya existe en la base de datos
+        const existingPosition = await this.prisma.position.findFirst({
+          where: {
+            subAccountId: subaccount.id,
+            symbol: position.symbol,
+            side: position.side,
+            status: 'OPEN',
+          },
+        });
+        
+        if (existingPosition) {
+          // Actualizar la posición existente
+          this.logger.log(`🔄 Actualizando posición existente para ${position.symbol} (${position.side})`);
+          
+          const updateData: UpdatePositionDto = {
+            markPrice: position.markPrice,
+            unrealisedPnl: position.unrealisedPnl,
+            status: 'OPEN', // Asegurarnos de que sigue abierta
+          };
+          
+          await this.prisma.position.update({
+            where: { id: existingPosition.id },
+            data: updateData,
+          });
+        } else {
+          // Crear una nueva posición
+          this.logger.log(`➕ Creando nueva posición para ${position.symbol} (${position.side})`);
+          
+          const createData: CreatePositionDto = {
+            externalId: `${position.symbol}-${position.side}-${Date.now()}`, // Generamos un ID único
+            subAccountId: subaccount.id,
+            userId: subaccount.userId,
+            symbol: position.symbol,
+            positionType: 'PERPETUAL', // Por defecto para futuros perpetuos
+            side: position.side,
+            size: position.size,
+            leverage: position.leverage,
+            entryPrice: position.avgPrice,
+            markPrice: position.markPrice,
+            status: 'OPEN',
+            openedAt: new Date(),
+            unrealisedPnl: position.unrealisedPnl,
+            settlementCurrency: 'USDT', // Por defecto para contratos lineales
+            liquidationPrice: position.liqPrice || position.bustPrice,
+            isDemo: subaccount.isDemo,
+            exchange: 'BYBIT',
+            category: 'linear',
+          };
+          
+          await this.prisma.position.create({
+            data: createData,
+          });
+        }
+      }
+      
+      this.logger.log(`✅ Posiciones guardadas correctamente en la base de datos`);
+    } catch (error) {
+      this.logger.error(`❌ Error al guardar posiciones en la base de datos:`, error);
+    }
+  }
+
+  /**
+   * Obtiene todas las posiciones de un usuario
+   * @param userId ID del usuario
+   * @returns Lista de posiciones del usuario
+   */
+  async getUserPositions(userId: string) {
+    try {
+      return await this.prisma.position.findMany({
+        where: { userId },
+        orderBy: { openedAt: 'desc' },
+      });
+    } catch (error) {
+      this.logger.error(`❌ Error al obtener posiciones del usuario ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Obtiene las posiciones abiertas de un usuario
+   * @param userId ID del usuario
+   * @returns Lista de posiciones abiertas del usuario
+   */
+  async getUserOpenPositions(userId: string) {
+    try {
+      return await this.prisma.position.findMany({
+        where: { 
+          userId,
+          status: 'OPEN'
+        },
+        orderBy: { openedAt: 'desc' },
+      });
+    } catch (error) {
+      this.logger.error(`❌ Error al obtener posiciones abiertas del usuario ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Obtiene las posiciones de una subcuenta
+   * @param subAccountId ID de la subcuenta
+   * @param userId ID del usuario (para verificación)
+   * @returns Lista de posiciones de la subcuenta
+   */
+  async getSubAccountPositions(subAccountId: string, userId: string) {
+    try {
+      // Verificar que la subcuenta pertenece al usuario
+      const subAccount = await this.prisma.subAccount.findFirst({
+        where: { 
+          id: subAccountId,
+          userId
+        }
+      });
+      
+      if (!subAccount) {
+        throw new Error('Subcuenta no encontrada o no pertenece al usuario');
+      }
+      
+      return await this.prisma.position.findMany({
+        where: { subAccountId },
+        orderBy: { openedAt: 'desc' },
+      });
+    } catch (error) {
+      this.logger.error(`❌ Error al obtener posiciones de la subcuenta ${subAccountId}:`, error);
+      throw error;
+    }
   }
 } 

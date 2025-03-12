@@ -17,16 +17,58 @@ model User {
 }
 
 model SubAccount {
-  id        String   @id @default(uuid())
+  id        String     @id @default(uuid())
   userId    String
   name      String
   exchange  String
   apiKey    String
   secretKey String
-  createdAt DateTime @default(now())
-  isDemo    Boolean  @default(false)
-  updatedAt DateTime @default(now()) @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+  isDemo    Boolean    @default(false)
+  updatedAt DateTime   @default(now()) @updatedAt
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  positions Position[]
 
   @@index([userId])
+}
+
+model Position {
+  id                String   @id @default(uuid())
+  externalId        String?
+  subAccountId      String
+  userId            String
+  symbol            String
+  positionType      String
+  side              String
+  size              String
+  leverage          String
+  entryPrice        String
+  markPrice         String?
+  status            String
+  openedAt          DateTime
+  closedAt          DateTime?
+  updatedAt         DateTime @default(now()) @updatedAt
+  exitPrice         String?
+  realisedPnl       String?
+  unrealisedPnl     String?
+  commission        String?
+  settlementCurrency String
+  stopLossPrice     String?
+  takeProfitPrice   String?
+  liquidationPrice  String?
+  margin            String?
+  isDemo            Boolean
+  exchange          String
+  category          String
+  tags              String?
+  durationSeconds   Int?
+  percentageReturn  Float?
+  maxDrawdown       Float?
+  subAccount        SubAccount @relation(fields: [subAccountId], references: [id], onDelete: Cascade)
+
+  @@index([subAccountId])
+  @@index([userId])
+  @@index([symbol])
+  @@index([status])
+  @@index([openedAt])
 }
