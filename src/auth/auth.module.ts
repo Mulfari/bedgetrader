@@ -8,7 +8,6 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { UserProfileController } from "./user-profile.controller";
 import { SubaccountsModule } from "../subaccounts/subaccounts.module";
 import { SubaccountsService } from "../subaccounts/subaccounts.service";
-import { PositionsModule } from '../positions/positions.module';
 
 @Module({
   imports: [
@@ -23,7 +22,6 @@ import { PositionsModule } from '../positions/positions.module';
     }),
     PrismaModule,
     SubaccountsModule, // Importar el módulo de subcuentas
-    PositionsModule,
   ],
   controllers: [AuthController, UserProfileController],
   providers: [AuthService, JwtStrategy, SubaccountsService], // Añadir el servicio de subcuentas

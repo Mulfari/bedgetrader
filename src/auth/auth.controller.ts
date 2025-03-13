@@ -2,15 +2,13 @@ import { Body, Controller, HttpException, HttpStatus, Post } from '@nestjs/commo
 import { AuthService } from './auth.service';
 import { JwtService } from '@nestjs/jwt';
 import { SubaccountsService } from '../subaccounts/subaccounts.service';
-import { PositionsService } from '../positions/positions.service';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private authService: AuthService,
     private jwtService: JwtService,
-    private subaccountsService: SubaccountsService,
-    private positionsService: PositionsService
+    private subaccountsService: SubaccountsService
   ) {}
 
   @Post('register')
