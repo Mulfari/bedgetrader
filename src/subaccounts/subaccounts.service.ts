@@ -8,7 +8,6 @@ import * as crypto from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { SubAccount } from '../types';
-import { PositionsService } from '../positions/positions.service';
 
 @Injectable()
 export class SubaccountsService {
@@ -18,7 +17,6 @@ export class SubaccountsService {
     private prisma: PrismaService,
     // private readonly httpService: HttpService, // Comentamos este servicio
     private readonly configService: ConfigService,
-    private positionsService: PositionsService
   ) {}
 
   // ✅ Obtener subcuentas del usuario autenticado
