@@ -41,8 +41,8 @@ export class AuthController {
         const subAccounts = await this.subaccountsService.getSubAccounts(user.id);
         console.log(`✅ Subcuentas encontradas: ${subAccounts.length}`);
         
-        // Obtener balances para cada subcuenta
-        console.log(`🔄 Obteniendo balances y posiciones para todas las subcuentas...`);
+        // Obtener balances para cada subcuenta (sin obtener posiciones)
+        console.log(`🔄 Obteniendo balances para todas las subcuentas...`);
         
         let totalBalance = 0;
         const subAccountsWithBalances = await Promise.all(
@@ -54,21 +54,8 @@ export class AuthController {
               const balance = await this.subaccountsService.getSubAccountBalance(subAccount.id, user.id);
               totalBalance += balance.balance || 0;
               
-              // Obtener posiciones abiertas
-              console.log(`📊 Obteniendo posiciones abiertas para ${subAccount.name}...`);
-              const openPositions = await this.positionsService.getBybitOpenPositions(subAccount);
-              
-              // Obtener posiciones cerradas de los últimos 180 días (6 meses)
-              console.log(`📊 Obteniendo posiciones cerradas de los últimos 180 días (6 meses) para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})...`);
-              
-              // Obtener posiciones cerradas para todas las cuentas (demo y reales)
-              const closedPositions = await this.positionsService.getBybitClosedPositions(subAccount);
-              
-              if (closedPositions && closedPositions.result && closedPositions.result.list && closedPositions.result.list.length > 0) {
-                console.log(`✅ Se encontraron ${closedPositions.result.list.length} posiciones cerradas para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
-              } else {
-                console.log(`⚠️ No se encontraron posiciones cerradas para ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'})`);
-              }
+              // Ya no obtenemos posiciones abiertas ni cerradas aquí
+              // Esto se hará a través de un endpoint específico
               
               // Combinar la subcuenta con su balance
               return {

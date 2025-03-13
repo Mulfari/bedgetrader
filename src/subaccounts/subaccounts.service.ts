@@ -498,26 +498,8 @@ export class SubaccountsService {
 
       this.logger.log(`✅ Subcuenta creada exitosamente: ${subaccount.id}`);
 
-      // Si es una subcuenta de Bybit, obtener y guardar las posiciones cerradas de los últimos 180 días (6 meses)
-      if (exchange.toLowerCase() === 'bybit') {
-        this.logger.log(`🔄 Obteniendo posiciones cerradas de los últimos 180 días (6 meses) para la nueva subcuenta de Bybit (${isDemo ? 'DEMO' : 'REAL'})...`);
-        
-        try {
-          // Obtener las posiciones cerradas (futuros)
-          const closedPositions = await this.positionsService.getBybitClosedPositions(subaccount);
-          
-          if (closedPositions) {
-            // Guardar las posiciones cerradas en la base de datos
-            const savedCount = await this.positionsService.saveClosedPositions(subaccount, closedPositions);
-            this.logger.log(`✅ Se guardaron ${savedCount} posiciones cerradas (futuros) para la nueva subcuenta de Bybit (${isDemo ? 'DEMO' : 'REAL'})`);
-          } else {
-            this.logger.warn(`⚠️ No se pudieron obtener posiciones cerradas (futuros) para la nueva subcuenta de Bybit (${isDemo ? 'DEMO' : 'REAL'})`);
-          }
-        } catch (error) {
-          this.logger.error(`❌ Error al obtener y guardar operaciones para la nueva subcuenta de Bybit:`, error);
-          // No lanzamos el error para no interrumpir la creación de la subcuenta
-        }
-      }
+      // Ya no obtenemos las posiciones cerradas automáticamente al crear la subcuenta
+      // Esto se hará a través de un endpoint específico
 
       return subaccount;
     } catch (error) {
