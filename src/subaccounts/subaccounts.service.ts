@@ -776,4 +776,171 @@ export class SubaccountsService {
       throw error;
     }
   }
+
+  /**
+   * Obtiene las posiciones abiertas en perpetual para una subcuenta de Bybit
+   * @param userId ID del usuario
+   * @returns Número de posiciones abiertas en perpetual para todas las subcuentas demo
+   */
+  async getBybitDemoPerpetualPositions(userId: string): Promise<{ totalPositions: number, subaccountsWithPositions: any[] }> {
+    try {
+      console.log(`🔍 Obteniendo posiciones abiertas en perpetual para cuentas demo del usuario: ${userId}`);
+      
+      // Obtener todas las subcuentas demo de Bybit del usuario
+      const subAccounts = await this.prisma.subAccount.findMany({
+        where: {
+          userId,
+          exchange: 'bybit',
+          isDemo: true
+        }
+      });
+      
+      console.log(`✅ Se encontraron ${subAccounts.length} subcuentas demo de Bybit`);
+      
+      if (subAccounts.length === 0) {
+        return { totalPositions: 0, subaccountsWithPositions: [] };
+      }
+      
+      // Array para almacenar resultados de cada subcuenta
+      const subaccountsWithPositions = [];
+      let totalPositions = 0;
+      
+      // Procesar cada subcuenta
+      for (const subAccount of subAccounts) {
+        try {
+          const positions = await this.getBybitPerpetualPositions(subAccount);
+          
+          // Contar posiciones abiertas
+          const openPositions = positions.filter(pos => parseFloat(pos.size) !== 0);
+          
+          console.log(`✅ Subcuenta ${subAccount.name}: ${openPositions.length} posiciones abiertas en perpetual`);
+          
+          // Actualizar contador total
+          totalPositions += openPositions.length;
+          
+          // Agregar información de esta subcuenta
+          subaccountsWithPositions.push({
+            id: subAccount.id,
+            name: subAccount.name,
+            openPositionsCount: openPositions.length
+          });
+        } catch (error) {
+          console.error(`❌ Error al obtener posiciones para subcuenta ${subAccount.name}:`, error.message);
+          
+          // Agregar la subcuenta con error
+          subaccountsWithPositions.push({
+            id: subAccount.id,
+            name: subAccount.name,
+            openPositionsCount: 0,
+            error: error.message
+          });
+        }
+      }
+      
+      console.log(`📊 Total de posiciones abiertas en perpetual en cuentas demo: ${totalPositions}`);
+      
+      return {
+        totalPositions,
+        subaccountsWithPositions
+      };
+    } catch (error) {
+      console.error('❌ Error al obtener posiciones abiertas en perpetual:', error);
+      throw new HttpException(
+        `Error al obtener posiciones abiertas en perpetual: ${error.message || 'Error desconocido'}`,
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+  
+  /**
+   * Obtiene las posiciones abiertas en perpetual para una subcuenta específica de Bybit
+   * @param subaccount Subcuenta de Bybit
+   * @returns Lista de posiciones abiertas en perpetual
+   */
+  private async getBybitPerpetualPositions(subaccount: any): Promise<any[]> {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 2000; // 2 segundos entre reintentos
+    
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        // 🔹 Configurar proxy
+        const proxyUrl = "http://spj4f84ugp:cquYV74a4kWrct_V9h@de.smartproxy.com:20001";
+        const proxyAgent = new HttpsProxyAgent(proxyUrl);
+
+        // 🔹 Parámetros de autenticación
+        const timestamp = Date.now().toString();
+        const apiKey = subaccount.apiKey;
+        const secretKey = subaccount.secretKey;
+        const recvWindow = "5000";
+
+        // 🔹 QueryString para obtener posiciones perpetual
+        const queryParams = { 
+          category: "linear", // Para futuros perpetuos lineales (USDT)
+          settleCoin: "USDT" // Opcional: filtrar por moneda de liquidación
+        };
+        const queryString = new URLSearchParams(queryParams).toString();
+
+        // 🔹 Crear el string para firmar
+        const signPayload = `${timestamp}${apiKey}${recvWindow}${queryString || ""}`;
+        const signature = crypto.createHmac('sha256', secretKey).update(signPayload).digest('hex');
+
+        // 🔹 Headers para Bybit V5
+        const headers = {
+          'X-BAPI-API-KEY': apiKey,
+          'X-BAPI-TIMESTAMP': timestamp,
+          'X-BAPI-RECV-WINDOW': recvWindow,
+          'X-BAPI-SIGN': signature,
+        };
+
+        // 🔹 URL de Bybit para obtener posiciones
+        const baseUrl = subaccount.isDemo 
+          ? "https://api-demo.bybit.com"
+          : "https://api.bybit.com";
+        
+        const url = `${baseUrl}/v5/position/list`;
+
+        // 🔹 Hacer la solicitud a Bybit
+        const axiosConfig = {
+          headers,
+          params: queryParams,
+          httpsAgent: proxyAgent,
+          timeout: 10000,
+        };
+
+        const response = await axios.get(url, axiosConfig);
+        
+        // Verificar respuesta
+        if (!response.data || response.data.retCode !== 0) {
+          const error = new Error(`Error en Bybit: ${response.data?.retMsg}`);
+          error['bybitCode'] = response.data?.retCode;
+          error['bybitMsg'] = response.data?.retMsg;
+          throw error;
+        }
+
+        // Procesar la respuesta para extraer las posiciones
+        const result = response.data.result;
+        
+        // Verificar si hay datos en el resultado
+        if (!result || !result.list || !Array.isArray(result.list)) {
+          console.error('❌ No se encontraron datos de posiciones en la respuesta de Bybit');
+          return [];
+        }
+        
+        // Devolver la lista de posiciones
+        return result.list;
+      } catch (error) {
+        console.error(`❌ Error al obtener posiciones (intento ${attempt}/${MAX_RETRIES}):`, error.message);
+        
+        if (attempt < MAX_RETRIES) {
+          console.log(`⏱️ Reintentando en ${RETRY_DELAY/1000} segundos...`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        } else {
+          throw error;
+        }
+      }
+    }
+    
+    // Este return nunca debería ejecutarse debido al manejo de errores anterior
+    return [];
+  }
 }

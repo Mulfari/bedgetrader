@@ -1,7 +1,8 @@
-import { Body, Controller, HttpException, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, HttpException, HttpStatus, Post, Get, UseGuards, Request } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { JwtService } from '@nestjs/jwt';
 import { SubaccountsService } from '../subaccounts/subaccounts.service';
+import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -38,6 +39,11 @@ export class AuthController {
         // Obtener subcuentas del usuario
         const subAccounts = await this.subaccountsService.getSubAccounts(user.id);
         console.log(`✅ Subcuentas encontradas: ${subAccounts.length}`);
+        
+        // Obtener posiciones abiertas en perpetual para cuentas demo
+        console.log(`🔍 Verificando posiciones abiertas en perpetual para cuentas demo...`);
+        const perpetualPositions = await this.subaccountsService.getBybitDemoPerpetualPositions(user.id);
+        console.log(`📊 Total de posiciones abiertas en perpetual en cuentas demo: ${perpetualPositions.totalPositions}`);
         
         // Obtener balances para cada subcuenta (sin obtener posiciones)
         console.log(`🔄 Obteniendo balances para todas las subcuentas...`);
@@ -113,7 +119,11 @@ export class AuthController {
             email: user.email,
             name: user.name
           },
-          subAccounts: subAccountsWithBalances
+          subAccounts: subAccountsWithBalances,
+          perpetualPositions: {
+            totalPositions: perpetualPositions.totalPositions,
+            subaccountsWithPositions: perpetualPositions.subaccountsWithPositions
+          }
         };
       } else {
         throw new HttpException('Credenciales inválidas', HttpStatus.UNAUTHORIZED);
@@ -123,6 +133,31 @@ export class AuthController {
       throw new HttpException(
         error.message || 'Error en la autenticación', 
         error.status || HttpStatus.UNAUTHORIZED
+      );
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('demo-perpetual-positions')
+  async getDemoPerpetualPositions(@Request() req) {
+    try {
+      const userId = req.user.sub;
+      console.log(`🔍 Obteniendo posiciones abiertas en perpetual para cuentas demo del usuario: ${userId}`);
+      
+      const perpetualPositions = await this.subaccountsService.getBybitDemoPerpetualPositions(userId);
+      
+      console.log(`📊 Total de posiciones abiertas en perpetual en cuentas demo: ${perpetualPositions.totalPositions}`);
+      
+      return {
+        message: 'Posiciones obtenidas exitosamente',
+        totalPositions: perpetualPositions.totalPositions,
+        subaccountsWithPositions: perpetualPositions.subaccountsWithPositions
+      };
+    } catch (error) {
+      console.error("❌ Error al obtener posiciones abiertas en perpetual:", error.message);
+      throw new HttpException(
+        error.message || 'Error al obtener posiciones abiertas en perpetual', 
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR
       );
     }
   }
