@@ -778,13 +778,105 @@ export class SubaccountsService {
   }
 
   /**
-   * Obtiene las posiciones abiertas en perpetual para una subcuenta de Bybit
+   * Obtiene las posiciones abiertas en perpetual para todas las subcuentas de Bybit (demo y reales)
    * @param userId ID del usuario
-   * @returns Número de posiciones abiertas en perpetual para todas las subcuentas demo
+   * @returns Número de posiciones abiertas en perpetual para todas las subcuentas
+   */
+  async getBybitAllPerpetualPositions(userId: string): Promise<{ 
+    totalPositions: number, 
+    totalDemoPositions: number, 
+    totalRealPositions: number, 
+    subaccountsWithPositions: any[] 
+  }> {
+    try {
+      console.log(`🔍 Obteniendo posiciones abiertas en perpetual para TODAS las cuentas del usuario: ${userId}`);
+      
+      // Obtener todas las subcuentas de Bybit del usuario (demo y reales)
+      const subAccounts = await this.prisma.subAccount.findMany({
+        where: {
+          userId,
+          exchange: 'bybit'
+        }
+      });
+      
+      console.log(`✅ Se encontraron ${subAccounts.length} subcuentas de Bybit (demo y reales)`);
+      
+      if (subAccounts.length === 0) {
+        return { totalPositions: 0, totalDemoPositions: 0, totalRealPositions: 0, subaccountsWithPositions: [] };
+      }
+      
+      // Array para almacenar resultados de cada subcuenta
+      const subaccountsWithPositions = [];
+      let totalPositions = 0;
+      let totalDemoPositions = 0;
+      let totalRealPositions = 0;
+      
+      // Procesar cada subcuenta
+      for (const subAccount of subAccounts) {
+        try {
+          const positions = await this.getBybitPerpetualPositions(subAccount);
+          
+          // Contar posiciones abiertas
+          const openPositions = positions.filter(pos => parseFloat(pos.size) !== 0);
+          
+          console.log(`✅ Subcuenta ${subAccount.name} (${subAccount.isDemo ? 'DEMO' : 'REAL'}): ${openPositions.length} posiciones abiertas en perpetual`);
+          
+          // Actualizar contadores
+          totalPositions += openPositions.length;
+          if (subAccount.isDemo) {
+            totalDemoPositions += openPositions.length;
+          } else {
+            totalRealPositions += openPositions.length;
+          }
+          
+          // Agregar información de esta subcuenta
+          subaccountsWithPositions.push({
+            id: subAccount.id,
+            name: subAccount.name,
+            isDemo: subAccount.isDemo,
+            openPositionsCount: openPositions.length
+          });
+        } catch (error) {
+          console.error(`❌ Error al obtener posiciones para subcuenta ${subAccount.name}:`, error.message);
+          
+          // Agregar la subcuenta con error
+          subaccountsWithPositions.push({
+            id: subAccount.id,
+            name: subAccount.name,
+            isDemo: subAccount.isDemo,
+            openPositionsCount: 0,
+            error: error.message
+          });
+        }
+      }
+      
+      console.log(`📊 Total de posiciones abiertas en perpetual: ${totalPositions}`);
+      console.log(`📊 - En cuentas demo: ${totalDemoPositions}`);
+      console.log(`📊 - En cuentas reales: ${totalRealPositions}`);
+      
+      return {
+        totalPositions,
+        totalDemoPositions,
+        totalRealPositions,
+        subaccountsWithPositions
+      };
+    } catch (error) {
+      console.error('❌ Error al obtener posiciones abiertas en perpetual:', error);
+      throw new HttpException(
+        `Error al obtener posiciones abiertas en perpetual: ${error.message || 'Error desconocido'}`,
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  /**
+   * Obtiene las posiciones abiertas en perpetual para las subcuentas demo de Bybit
+   * @param userId ID del usuario
+   * @returns Número de posiciones abiertas en perpetual para las subcuentas demo
    */
   async getBybitDemoPerpetualPositions(userId: string): Promise<{ totalPositions: number, subaccountsWithPositions: any[] }> {
     try {
-      console.log(`🔍 Obteniendo posiciones abiertas en perpetual para cuentas demo del usuario: ${userId}`);
+      console.log(`🔍 Obteniendo posiciones abiertas en perpetual para cuentas DEMO del usuario: ${userId}`);
       
       // Obtener todas las subcuentas demo de Bybit del usuario
       const subAccounts = await this.prisma.subAccount.findMany({
@@ -813,7 +905,7 @@ export class SubaccountsService {
           // Contar posiciones abiertas
           const openPositions = positions.filter(pos => parseFloat(pos.size) !== 0);
           
-          console.log(`✅ Subcuenta ${subAccount.name}: ${openPositions.length} posiciones abiertas en perpetual`);
+          console.log(`✅ Subcuenta ${subAccount.name} (DEMO): ${openPositions.length} posiciones abiertas en perpetual`);
           
           // Actualizar contador total
           totalPositions += openPositions.length;
@@ -844,9 +936,9 @@ export class SubaccountsService {
         subaccountsWithPositions
       };
     } catch (error) {
-      console.error('❌ Error al obtener posiciones abiertas en perpetual:', error);
+      console.error('❌ Error al obtener posiciones abiertas en perpetual para cuentas demo:', error);
       throw new HttpException(
-        `Error al obtener posiciones abiertas en perpetual: ${error.message || 'Error desconocido'}`,
+        `Error al obtener posiciones abiertas en perpetual para cuentas demo: ${error.message || 'Error desconocido'}`,
         HttpStatus.INTERNAL_SERVER_ERROR
       );
     }

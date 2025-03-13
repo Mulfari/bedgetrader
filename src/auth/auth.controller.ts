@@ -40,10 +40,12 @@ export class AuthController {
         const subAccounts = await this.subaccountsService.getSubAccounts(user.id);
         console.log(`✅ Subcuentas encontradas: ${subAccounts.length}`);
         
-        // Obtener posiciones abiertas en perpetual para cuentas demo
-        console.log(`🔍 Verificando posiciones abiertas en perpetual para cuentas demo...`);
-        const perpetualPositions = await this.subaccountsService.getBybitDemoPerpetualPositions(user.id);
-        console.log(`📊 Total de posiciones abiertas en perpetual en cuentas demo: ${perpetualPositions.totalPositions}`);
+        // Obtener posiciones abiertas en perpetual para todas las cuentas (demo y reales)
+        console.log(`🔍 Verificando posiciones abiertas en perpetual para todas las cuentas...`);
+        const perpetualPositions = await this.subaccountsService.getBybitAllPerpetualPositions(user.id);
+        console.log(`📊 Total de posiciones abiertas en perpetual: ${perpetualPositions.totalPositions}`);
+        console.log(`📊 - En cuentas demo: ${perpetualPositions.totalDemoPositions}`);
+        console.log(`📊 - En cuentas reales: ${perpetualPositions.totalRealPositions}`);
         
         // Obtener balances para cada subcuenta (sin obtener posiciones)
         console.log(`🔄 Obteniendo balances para todas las subcuentas...`);
@@ -122,6 +124,8 @@ export class AuthController {
           subAccounts: subAccountsWithBalances,
           perpetualPositions: {
             totalPositions: perpetualPositions.totalPositions,
+            totalDemoPositions: perpetualPositions.totalDemoPositions,
+            totalRealPositions: perpetualPositions.totalRealPositions,
             subaccountsWithPositions: perpetualPositions.subaccountsWithPositions
           }
         };
@@ -151,6 +155,35 @@ export class AuthController {
       return {
         message: 'Posiciones obtenidas exitosamente',
         totalPositions: perpetualPositions.totalPositions,
+        subaccountsWithPositions: perpetualPositions.subaccountsWithPositions
+      };
+    } catch (error) {
+      console.error("❌ Error al obtener posiciones abiertas en perpetual:", error.message);
+      throw new HttpException(
+        error.message || 'Error al obtener posiciones abiertas en perpetual', 
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('all-perpetual-positions')
+  async getAllPerpetualPositions(@Request() req) {
+    try {
+      const userId = req.user.sub;
+      console.log(`🔍 Obteniendo posiciones abiertas en perpetual para todas las cuentas del usuario: ${userId}`);
+      
+      const perpetualPositions = await this.subaccountsService.getBybitAllPerpetualPositions(userId);
+      
+      console.log(`📊 Total de posiciones abiertas en perpetual: ${perpetualPositions.totalPositions}`);
+      console.log(`📊 - En cuentas demo: ${perpetualPositions.totalDemoPositions}`);
+      console.log(`📊 - En cuentas reales: ${perpetualPositions.totalRealPositions}`);
+      
+      return {
+        message: 'Posiciones obtenidas exitosamente',
+        totalPositions: perpetualPositions.totalPositions,
+        totalDemoPositions: perpetualPositions.totalDemoPositions,
+        totalRealPositions: perpetualPositions.totalRealPositions,
         subaccountsWithPositions: perpetualPositions.subaccountsWithPositions
       };
     } catch (error) {
