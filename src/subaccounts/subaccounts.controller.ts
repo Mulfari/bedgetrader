@@ -288,4 +288,70 @@ export class SubaccountsController {
       throw error;
     }
   }
+
+  // ✅ Obtener operaciones abiertas en perpetual para una subcuenta específica
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/open-perpetual-operations')
+  async getSubAccountOpenPerpetualOperations(@Param('id') id: string, @Req() req) {
+    try {
+      const userId = req.user.sub;
+      
+      // Verificar que el ID de usuario no sea undefined
+      if (!userId) {
+        console.error('❌ Error: ID de usuario es undefined en el token JWT');
+        throw new HttpException('ID de usuario no disponible en el token', HttpStatus.UNAUTHORIZED);
+      }
+      
+      this.logger.log(`🔍 Solicitando operaciones abiertas en perpetual para subcuenta: ${id}`);
+      
+      const operations = await this.subaccountsService.getSubAccountOpenPerpetualOperations(id, userId);
+      
+      this.logger.log(`✅ Se encontraron ${operations.length} operaciones abiertas en perpetual para la subcuenta ${id}`);
+      
+      return {
+        success: true,
+        message: `Se encontraron ${operations.length} operaciones abiertas en perpetual`,
+        operations
+      };
+    } catch (error) {
+      this.logger.error(`❌ Error al obtener operaciones abiertas en perpetual:`, error.message);
+      throw new HttpException(
+        error.message || 'Error al obtener operaciones abiertas en perpetual',
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+  
+  // ✅ Obtener todas las operaciones abiertas en perpetual para todas las subcuentas del usuario
+  @UseGuards(JwtAuthGuard)
+  @Get('user/all-open-perpetual-operations')
+  async getAllUserOpenPerpetualOperations(@Req() req) {
+    try {
+      const userId = req.user.sub;
+      
+      // Verificar que el ID de usuario no sea undefined
+      if (!userId) {
+        console.error('❌ Error: ID de usuario es undefined en el token JWT');
+        throw new HttpException('ID de usuario no disponible en el token', HttpStatus.UNAUTHORIZED);
+      }
+      
+      this.logger.log(`🔍 Solicitando todas las operaciones abiertas en perpetual para el usuario: ${userId}`);
+      
+      const operations = await this.subaccountsService.getAllUserOpenPerpetualOperations(userId);
+      
+      this.logger.log(`✅ Se encontraron ${operations.length} operaciones abiertas en perpetual en total`);
+      
+      return {
+        success: true,
+        message: `Se encontraron ${operations.length} operaciones abiertas en perpetual en total`,
+        operations
+      };
+    } catch (error) {
+      this.logger.error(`❌ Error al obtener todas las operaciones abiertas en perpetual:`, error.message);
+      throw new HttpException(
+        error.message || 'Error al obtener todas las operaciones abiertas en perpetual',
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
 }

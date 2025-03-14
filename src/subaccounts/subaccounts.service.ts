@@ -1035,4 +1035,143 @@ export class SubaccountsService {
     // Este return nunca debería ejecutarse debido al manejo de errores anterior
     return [];
   }
+
+  /**
+   * Obtiene las operaciones abiertas en perpetual para una subcuenta específica y las transforma al formato
+   * que espera el componente Operations.tsx del frontend
+   * @param subAccountId ID de la subcuenta
+   * @param userId ID del usuario
+   * @returns Lista de operaciones abiertas en perpetual formateadas para el frontend
+   */
+  async getSubAccountOpenPerpetualOperations(subAccountId: string, userId: string): Promise<any[]> {
+    try {
+      console.log(`🔍 Obteniendo operaciones abiertas en perpetual para subcuenta: ${subAccountId}`);
+      
+      // Buscar la subcuenta
+      const subaccount = await this.findOne(subAccountId, userId);
+      
+      if (!subaccount) {
+        console.error(`❌ Subcuenta ${subAccountId} no encontrada para usuario ${userId}`);
+        throw new HttpException('Subcuenta no encontrada', HttpStatus.NOT_FOUND);
+      }
+      
+      // Verificar que sea una subcuenta de Bybit
+      if (subaccount.exchange.toLowerCase() !== 'bybit') {
+        console.error(`❌ Exchange ${subaccount.exchange} no soportado para obtener operaciones perpetual`);
+        throw new HttpException(`Exchange ${subaccount.exchange} no soportado para obtener operaciones perpetual`, HttpStatus.BAD_REQUEST);
+      }
+      
+      try {
+        // Obtener posiciones abiertas en perpetual
+        const positions = await this.getBybitPerpetualPositions(subaccount);
+        
+        // Filtrar solo las posiciones abiertas (size != 0)
+        const openPositions = positions.filter(pos => parseFloat(pos.size) !== 0);
+        
+        console.log(`✅ Subcuenta ${subaccount.name}: ${openPositions.length} operaciones abiertas en perpetual`);
+        
+        // Transformar las posiciones al formato que espera el frontend
+        const formattedOperations = openPositions.map(position => {
+          // Calcular el lado (compra/venta) basado en el signo del tamaño
+          const side = parseFloat(position.size) > 0 ? 'buy' : 'sell';
+          
+          // Calcular el beneficio no realizado en USD
+          const unrealizedPnl = parseFloat(position.unrealisedPnl || '0');
+          
+          // Crear un ID único para la operación
+          const operationId = `${subaccount.id}-${position.symbol}-${Date.now()}`;
+          
+          // Formatear la operación según la interfaz Operation del frontend
+          return {
+            id: operationId,
+            subAccountId: subaccount.id,
+            symbol: position.symbol,
+            side: side,
+            status: 'open',
+            price: parseFloat(position.avgPrice || position.entryPrice),
+            quantity: Math.abs(parseFloat(position.size)),
+            leverage: parseFloat(position.leverage || '1'),
+            openTime: new Date(parseInt(position.createdTime)),
+            profit: unrealizedPnl,
+            profitPercentage: parseFloat(position.unrealisedPnlPcnt || '0') * 100,
+            exchange: subaccount.exchange,
+            // Campos adicionales específicos de Bybit
+            positionIdx: position.positionIdx,
+            positionValue: parseFloat(position.positionValue || '0'),
+            liqPrice: parseFloat(position.liqPrice || '0'),
+            bustPrice: parseFloat(position.bustPrice || '0'),
+            markPrice: parseFloat(position.markPrice || '0'),
+            isIsolated: position.isIsolated === 'true',
+            autoAddMargin: position.autoAddMargin === 'true',
+            trailingStop: parseFloat(position.trailingStop || '0'),
+            takeProfit: parseFloat(position.takeProfit || '0'),
+            stopLoss: parseFloat(position.stopLoss || '0')
+          };
+        });
+        
+        return formattedOperations;
+      } catch (error) {
+        console.error(`❌ Error al obtener operaciones abiertas en perpetual:`, error.message);
+        throw new HttpException(
+          `Error al obtener operaciones abiertas en perpetual: ${error.message}`,
+          HttpStatus.INTERNAL_SERVER_ERROR
+        );
+      }
+    } catch (error) {
+      console.error(`❌ Error en getSubAccountOpenPerpetualOperations:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Obtiene todas las operaciones abiertas en perpetual para todas las subcuentas de un usuario
+   * @param userId ID del usuario
+   * @returns Lista de operaciones abiertas en perpetual para todas las subcuentas
+   */
+  async getAllUserOpenPerpetualOperations(userId: string): Promise<any[]> {
+    try {
+      console.log(`🔍 Obteniendo todas las operaciones abiertas en perpetual para el usuario: ${userId}`);
+      
+      // Obtener todas las subcuentas del usuario
+      const subAccounts = await this.prisma.subAccount.findMany({
+        where: { 
+          userId,
+          exchange: 'bybit' // Por ahora solo soportamos Bybit
+        }
+      });
+      
+      console.log(`✅ Se encontraron ${subAccounts.length} subcuentas de Bybit para el usuario`);
+      
+      if (subAccounts.length === 0) {
+        return [];
+      }
+      
+      // Array para almacenar todas las operaciones
+      let allOperations = [];
+      
+      // Procesar cada subcuenta
+      for (const subAccount of subAccounts) {
+        try {
+          // Obtener operaciones abiertas para esta subcuenta
+          const operations = await this.getSubAccountOpenPerpetualOperations(subAccount.id, userId);
+          
+          // Agregar las operaciones al array total
+          allOperations = [...allOperations, ...operations];
+        } catch (error) {
+          console.error(`❌ Error al obtener operaciones para subcuenta ${subAccount.name}:`, error.message);
+          // Continuamos con la siguiente subcuenta en caso de error
+        }
+      }
+      
+      console.log(`📊 Total de operaciones abiertas en perpetual encontradas: ${allOperations.length}`);
+      
+      return allOperations;
+    } catch (error) {
+      console.error('❌ Error al obtener todas las operaciones abiertas en perpetual:', error);
+      throw new HttpException(
+        `Error al obtener todas las operaciones abiertas en perpetual: ${error.message || 'Error desconocido'}`,
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
 }
