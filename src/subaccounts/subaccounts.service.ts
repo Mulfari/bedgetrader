@@ -1079,7 +1079,10 @@ export class SubaccountsService {
           const unrealizedPnl = parseFloat(position.unrealisedPnl || '0');
           
           // Crear un ID único para la operación
-          const operationId = `${subaccount.id}-${position.symbol}-${Date.now()}`;
+          const operationId = `${subaccount.id}-${position.symbol}-${side}-${position.positionIdx}-${position.createdTime}`;
+          
+          // Log para verificar el ID generado
+          console.log(`🔑 Generando ID para operación: ${operationId} (${position.symbol}, ${side})`);
           
           // Formatear la operación según la interfaz Operation del frontend
           return {
@@ -1109,7 +1112,20 @@ export class SubaccountsService {
           };
         });
         
-        return formattedOperations;
+        // Verificar que no haya IDs duplicados
+        const operationIds = new Set();
+        const uniqueOperations = formattedOperations.map(op => {
+          if (operationIds.has(op.id)) {
+            // Si ya existe este ID, añadir un sufijo único
+            const uniqueId = `${op.id}-${Math.random().toString(36).substring(2, 10)}`;
+            console.log(`⚠️ ID duplicado detectado: ${op.id}, generando nuevo ID: ${uniqueId}`);
+            op.id = uniqueId;
+          }
+          operationIds.add(op.id);
+          return op;
+        });
+        
+        return uniqueOperations;
       } catch (error) {
         console.error(`❌ Error al obtener operaciones abiertas en perpetual:`, error.message);
         throw new HttpException(
