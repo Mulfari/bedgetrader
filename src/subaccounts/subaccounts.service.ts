@@ -1083,6 +1083,12 @@ export class SubaccountsService {
           
           // Calcular el lado (compra/venta) basado en el signo del tamaño
           const size = parseFloat(position.size);
+          
+          // Verificar si el tamaño es negativo para posiciones short
+          if (size < 0) {
+            console.log(`⚠️ POSICIÓN SHORT DETECTADA: Symbol=${position.symbol}, Size=${size}`);
+          }
+          
           const side = size > 0 ? 'buy' : 'sell';
           
           console.log(`✅ Posición interpretada: Symbol=${position.symbol}, Size=${size}, Side=${side}`);
@@ -1091,7 +1097,8 @@ export class SubaccountsService {
           const unrealizedPnl = parseFloat(position.unrealisedPnl || '0');
           
           // Crear un ID único para la operación
-          const operationId = `${subaccount.id}-${position.symbol}-${Date.now()}`;
+          // Incluir información sobre si es SHORT en el ID para que el frontend pueda detectarlo
+          const operationId = `${subaccount.id}-${position.symbol}-${size < 0 ? 'SHORT-' : ''}${Date.now()}`;
           
           // Formatear la operación según la interfaz Operation del frontend
           return {
