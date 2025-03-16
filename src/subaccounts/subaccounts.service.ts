@@ -1070,24 +1070,16 @@ export class SubaccountsService {
         
         console.log(`✅ Subcuenta ${subaccount.name}: ${openPositions.length} operaciones abiertas en perpetual`);
         
-        // Set para verificar IDs únicos
-        const operationIds = new Set();
-        
         // Transformar las posiciones al formato que espera el frontend
         const formattedOperations = openPositions.map(position => {
           // Calcular el lado (compra/venta) basado en el signo del tamaño
-          const positionSize = parseFloat(position.size);
-          const side = positionSize > 0 ? 'buy' : 'sell';
+          const side = parseFloat(position.size) > 0 ? 'buy' : 'sell';
           
           // Calcular el beneficio no realizado en USD
           const unrealizedPnl = parseFloat(position.unrealisedPnl || '0');
           
-          // Crear un ID único para la operación usando elementos más estables
-          // Incluimos el lado (buy/sell) en el ID para asegurar que sea parte del identificador
-          const operationId = `${subaccount.id}-${position.symbol}-${side}-${position.positionIdx}`;
-          
-          // Log para verificar el ID generado y el lado de la operación
-          console.log(`🔑 Generando operación: ID=${operationId}, Symbol=${position.symbol}, Side=${side}, Size=${positionSize}`);
+          // Crear un ID único para la operación
+          const operationId = `${subaccount.id}-${position.symbol}-${Date.now()}`;
           
           // Formatear la operación según la interfaz Operation del frontend
           return {
@@ -1097,7 +1089,7 @@ export class SubaccountsService {
             side: side,
             status: 'open',
             price: parseFloat(position.avgPrice || position.entryPrice),
-            quantity: Math.abs(positionSize),
+            quantity: Math.abs(parseFloat(position.size)),
             leverage: parseFloat(position.leverage || '1'),
             openTime: new Date(parseInt(position.createdTime)),
             profit: unrealizedPnl,
@@ -1117,25 +1109,7 @@ export class SubaccountsService {
           };
         });
         
-        // Verificar que no haya IDs duplicados y añadir sufijos si es necesario
-        const uniqueOperations = [];
-        
-        for (const op of formattedOperations) {
-          if (operationIds.has(op.id)) {
-            // Si ya existe este ID, añadir un sufijo único
-            const uniqueId = `${op.id}-${Math.random().toString(36).substring(2, 10)}`;
-            console.log(`⚠️ ID duplicado detectado: ${op.id}, generando nuevo ID: ${uniqueId}`);
-            op.id = uniqueId;
-          }
-          
-          operationIds.add(op.id);
-          uniqueOperations.push(op);
-          
-          // Log para verificar la operación final
-          console.log(`📊 Operación procesada: ID=${op.id}, Symbol=${op.symbol}, Side=${op.side}, Quantity=${op.quantity}`);
-        }
-        
-        return uniqueOperations;
+        return formattedOperations;
       } catch (error) {
         console.error(`❌ Error al obtener operaciones abiertas en perpetual:`, error.message);
         throw new HttpException(
