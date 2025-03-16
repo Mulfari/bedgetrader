@@ -1072,8 +1072,20 @@ export class SubaccountsService {
         
         // Transformar las posiciones al formato que espera el frontend
         const formattedOperations = openPositions.map(position => {
+          // Añadir logs para depurar
+          console.log(`🔍 Posición original:`, {
+            symbol: position.symbol,
+            size: position.size,
+            positionSide: position.positionSide,
+            positionIdx: position.positionIdx,
+            side: position.side
+          });
+          
           // Calcular el lado (compra/venta) basado en el signo del tamaño
-          const side = parseFloat(position.size) > 0 ? 'buy' : 'sell';
+          const size = parseFloat(position.size);
+          const side = size > 0 ? 'buy' : 'sell';
+          
+          console.log(`✅ Posición interpretada: Symbol=${position.symbol}, Size=${size}, Side=${side}`);
           
           // Calcular el beneficio no realizado en USD
           const unrealizedPnl = parseFloat(position.unrealisedPnl || '0');
