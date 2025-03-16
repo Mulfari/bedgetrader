@@ -1072,15 +1072,6 @@ export class SubaccountsService {
         
         // Transformar las posiciones al formato que espera el frontend
         const formattedOperations = openPositions.map(position => {
-          // Añadir logs para depurar
-          console.log(`🔍 Posición original:`, {
-            symbol: position.symbol,
-            size: position.size,
-            positionSide: position.positionSide,
-            positionIdx: position.positionIdx,
-            side: position.side
-          });
-          
           // Determinar el lado (compra/venta) basado en el campo 'side' de Bybit
           // Si el campo 'side' está presente, usarlo directamente
           // Si no, calcular basado en el signo del tamaño como fallback
@@ -1091,26 +1082,16 @@ export class SubaccountsService {
             // Convertir a minúsculas y normalizar
             const bybitSide = position.side.toLowerCase();
             side = bybitSide === 'sell' || bybitSide === 'short' ? 'sell' : 'buy';
-            console.log(`✅ Usando lado proporcionado por Bybit: ${position.side} -> ${side}`);
           } else {
             // Fallback: calcular basado en el signo del tamaño
             side = size > 0 ? 'buy' : 'sell';
-            console.log(`⚠️ Campo 'side' no disponible, calculando basado en tamaño: ${size} -> ${side}`);
           }
-          
-          // Verificar si el tamaño es negativo para posiciones short
-          if (size < 0 || side === 'sell') {
-            console.log(`⚠️ POSICIÓN SHORT DETECTADA: Symbol=${position.symbol}, Size=${size}, Side=${side}`);
-          }
-          
-          console.log(`✅ Posición interpretada: Symbol=${position.symbol}, Size=${size}, Side=${side}`);
           
           // Calcular el beneficio no realizado en USD
           const unrealizedPnl = parseFloat(position.unrealisedPnl || '0');
           
           // Crear un ID único para la operación
-          // Incluir información sobre si es SHORT en el ID para que el frontend pueda detectarlo
-          const operationId = `${subaccount.id}-${position.symbol}-${side === 'sell' ? 'SHORT-' : ''}${Date.now()}`;
+          const operationId = `${subaccount.id}-${position.symbol}-${Date.now()}`;
           
           // Formatear la operación según la interfaz Operation del frontend
           return {
